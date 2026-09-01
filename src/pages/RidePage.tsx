@@ -14,6 +14,7 @@ import { RiderListDrawer } from '@/components/ride/RiderListDrawer';
 import { RiderDetailCard } from '@/components/ride/RiderDetailCard';
 import { LocationStatusBadge } from '@/components/ride/LocationStatusBadge';
 import { ChatModal } from '@/components/ride/ChatModal';
+import { ConfirmLeaveModal } from '@/components/ui/ConfirmLeaveModal';
 import { Loader2, ArrowLeft, AlertCircle, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { GpsLocation } from '@/features/location/locationTypes';
@@ -63,6 +64,8 @@ export const RidePage: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
   const realtimeChannelRef = useRef<RideRealtimeChannel | null>(null);
   const throttleFilterRef = useRef<LocationThrottleFilter>(new LocationThrottleFilter());
@@ -371,12 +374,36 @@ export const RidePage: React.FC = () => {
     }
   }, [destination, userLocation, calculateRoute]);
 
-  const handleLeaveRide = async () => {
+  const handleLeaveRide = () => {
+    setIsLeaveModalOpen(true);
+  };
+
+  const handleConfirmLeave = async () => {
     if (!rideId) return;
-    if (window.confirm('Are you sure you want to leave this ride?')) {
+    setIsLeaving(true);
+    try {
       localStorage.removeItem('longride_active_ride_id');
-      await RideService.leaveRide(rideId);
+      if (isHost) {
+        // Host ends the ride for everyone
+        await RideService.updateStatus(rideId, 'ended');
+        if (realtimeChannelRef.current) {
+          await realtimeChannelRef.current.broadcastRideEvent({
+            type: 'ride_ended',
+            message: 'The host ended the ride session.',
+            timestamp: Date.now(),
+          });
+        }
+      } else {
+        // Participant leaves
+        await RideService.leaveRide(rideId);
+      }
       navigate('/');
+    } catch (err) {
+      console.error('Failed to leave ride:', err);
+      navigate('/');
+    } finally {
+      setIsLeaving(false);
+      setIsLeaveModalOpen(false);
     }
   };
 
@@ -534,6 +561,15 @@ export const RidePage: React.FC = () => {
         rideName={currentRide.name}
         messages={chatMessages}
         onSendMessage={handleSendChatMessage}
+      />
+
+      {/* Leave Ride / End Ride Confirmation Dialog */}
+      <ConfirmLeaveModal
+        isOpen={isLeaveModalOpen}
+        onClose={() => setIsLeaveModalOpen(false)}
+        onConfirm={handleConfirmLeave}
+        isHost={isHost}
+        isLoading={isLeaving}
       />
     </div>
   );

@@ -17,7 +17,7 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
   onFocusRider,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { currentRide, participants, onlineUserIds, destination, route } = useRideStore();
+  const { currentRide, participants, onlineUserIds, destination, route, isHost } = useRideStore();
   const {
     userLocation,
     riderLocations,
@@ -251,10 +251,10 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
               variant="danger"
               size="sm"
               onClick={onLeaveRide}
-              className="w-full bg-rose-600/80 hover:bg-rose-600"
+              className="w-full bg-rose-600/80 hover:bg-rose-600 shadow-md shadow-rose-950/40"
             >
               <LogOut className="w-4 h-4" />
-              <span>Leave Ride Session</span>
+              <span>{isHost ? 'End & Leave Ride' : 'Leave Ride Session'}</span>
             </Button>
           </div>
         </div>
