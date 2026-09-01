@@ -44,17 +44,19 @@ export const useRideStore = create<RideState>((set) => ({
       return;
     }
 
-    const isHost = currentUserId ? ride.host_user_id === currentUserId : false;
-    const destination =
-      ride.destination_lat && ride.destination_lng
-        ? {
-            lat: ride.destination_lat,
-            lng: ride.destination_lng,
-            name: ride.destination_name || 'Shared Destination',
-          }
-        : null;
+    set((state) => {
+      const isHost = currentUserId !== undefined ? ride.host_user_id === currentUserId : state.isHost;
+      const destination =
+        ride.destination_lat && ride.destination_lng
+          ? {
+              lat: ride.destination_lat,
+              lng: ride.destination_lng,
+              name: ride.destination_name || 'Shared Destination',
+            }
+          : state.destination;
 
-    set({ currentRide: ride, isHost, destination });
+      return { currentRide: ride, isHost, destination };
+    });
   },
 
   setParticipants: (participants) => set({ participants }),
