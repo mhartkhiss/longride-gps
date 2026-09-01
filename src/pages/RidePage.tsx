@@ -515,7 +515,7 @@ export const RidePage: React.FC = () => {
       </div>
 
       {/* Bottom Floating Rider Drawer */}
-      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-auto sm:w-96 z-30 pointer-events-none pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
+      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-auto sm:w-96 z-30 pointer-events-none pb-[env(safe-area-inset-bottom,0px)]">
         <RiderListDrawer
           onLeaveRide={handleLeaveRide}
           onFocusRider={handleFocusRider}

@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 @layer base {
   :root {
     color-scheme: dark;
@@ -16,6 +22,7 @@
     overflow: hidden;
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
   }
 
   body {

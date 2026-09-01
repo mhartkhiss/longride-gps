@@ -66,7 +66,7 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[200px]">
+              <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate">
                 {currentRide?.name || 'Group Ride'}
               </h3>
               <Badge variant="brand" size="sm" className="shrink-0 text-[9px] sm:text-[10px] px-1.5 py-0.2">
