@@ -35,7 +35,7 @@ export const LandingPage: React.FC = () => {
   }, [navigate, initSession, isInitialized]);
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col justify-between p-6 sm:p-10 relative overflow-x-hidden overflow-y-auto">
+    <div className="w-full min-h-screen min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col justify-between p-6 sm:p-10 relative overflow-x-hidden">
       {/* Glow effect background */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-brand-500/15 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-cyan-500/10 blur-[100px] rounded-full pointer-events-none" />
