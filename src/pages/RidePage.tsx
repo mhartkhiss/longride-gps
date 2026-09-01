@@ -373,12 +373,12 @@ export const RidePage: React.FC = () => {
               setIsChatOpen(true);
               setUnreadCount(0);
             }}
-            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl glass-panel border-white/10 flex items-center justify-center text-slate-200 hover:text-white hover:border-brand-500/50 shadow-xl transition-all active:scale-95 bg-slate-900/80"
+            className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-900/95 hover:bg-slate-800 border-2 border-brand-400 text-brand-400 hover:text-white flex items-center justify-center shadow-2xl shadow-brand-500/25 backdrop-blur-md transition-all active:scale-95"
             title="Group Ride Chat"
           >
-            <MessageSquare className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-brand-400" />
+            <MessageSquare className="w-5 h-5 stroke-[2.2]" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-full flex items-center justify-center animate-bounce shadow">
+              <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-red-600 text-white font-black text-[10px] rounded-full flex items-center justify-center border-2 border-slate-950 animate-bounce shadow-lg shadow-red-600/60">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -447,6 +447,7 @@ export const RidePage: React.FC = () => {
           setIsChatOpen(false);
           setUnreadCount(0);
         }}
+        rideName={currentRide.name}
         messages={chatMessages}
         onSendMessage={handleSendChatMessage}
       />
