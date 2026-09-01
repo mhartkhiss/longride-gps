@@ -13,7 +13,25 @@ LongRide GPS lets riders create a temporary ride room, share a 6-character room 
 - **Battery & Bandwidth Throttling**: GPS updates are filtered client-side (1.5s interval + 3m movement threshold) before broadcasting.
 - **No Sign-Up Barriers**: Instant anonymous/guest authentication—no passwords or emails required to ride.
 - **Ephemeral Realtime Architecture**: Live GPS coordinates stream over **Supabase Realtime Broadcast** (never clogging your database), while **Presence** tracks who is online/offline.
-- **Mobile-Ready Dark UI**: Designed for motorcycle handlebars and bike mounts with high-contrast night aesthetics, collapsible bottom sheet, 2D/3D tilt toggle, and 1-tap recenter/fit-group controls.
+- **Mobile-First Dark UI**: Designed strictly for mounted smartphones (motorcycles, bikes, cars) with high-contrast night aesthetics, glove-friendly touch targets (min 44px), collapsible bottom sheets, 2D/3D tilt toggle, and 1-tap recenter/fit-group controls.
+- **Strict Mobile Ergonomics**: Fixed `100dvh` viewport containment, iOS/Android gesture navigation safe area insets, 16px inputs to prevent mobile browser auto-zoom, and tactile haptic feedback.
+
+---
+
+## 📱 Mobile-First UI/UX Design Standards
+
+This project adheres strictly to mobile-first UI/UX engineering standards:
+
+1. **True Viewport Sizing (`100dvh`)**: Always use dynamic viewport units (`100dvh`) and `fixed inset-0` on map viewports to prevent browser address bars and gesture navigation bars from clipping or pushing UI off-screen.
+2. **Safe-Area Inset Handling**: All floating controls, bottom sheets, and headers MUST utilize `env(safe-area-inset-*)` padding for iOS home indicators, dynamic islands, and Android navigation bars.
+3. **Glove & One-Thumb Ergonomics**:
+   - Touch targets must adhere to a minimum of **44×44px** tap areas.
+   - 1-tap quick actions (Quick Shouts, Recenter, Follow Rider, 2D/3D toggle) for handlebar use.
+   - Haptic vibration feedback (`navigator.vibrate`) on critical interactions.
+4. **Virtual Keyboard Handling**:
+   - Form inputs enforce a minimum `16px` font size to completely eliminate unwanted iOS Safari / Chrome auto-zoom.
+   - Form containers use `my-auto` centering inside `min-h-[100dvh]` so elements seamlessly scroll and remain visible when on-screen virtual keyboards appear.
+5. **High-DPI / Subpixel Rendering**: Use responsive truncation, `min-w-0`, and universal `box-sizing: border-box` to eliminate horizontal subpixel scroll clipping on 2x/3x/4x retina/AMOLED screens.
 
 ---
 
