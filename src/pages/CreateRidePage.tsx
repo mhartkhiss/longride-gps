@@ -67,7 +67,7 @@ export const CreateRidePage: React.FC = () => {
     <div className="w-full min-h-screen min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col justify-center items-center p-4 sm:p-6 py-6 sm:py-12 relative overflow-x-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-brand-500/10 blur-[100px] rounded-full pointer-events-none" />
 
-      <div className="w-full max-w-md space-y-6 relative z-10 my-auto">
+      <div className="w-full max-w-md space-y-6 relative z-10 my-auto transition-transform duration-300 ease-out focus-within:-translate-y-8 sm:focus-within:translate-y-0">
         {/* Back Link */}
         <button
           onClick={() => navigate('/')}
@@ -95,6 +95,7 @@ export const CreateRidePage: React.FC = () => {
               placeholder="e.g. Sunday Cebu Twisties, Coastal Cruisers"
               value={rideName}
               onChange={(e) => setRideName(e.target.value)}
+              onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
               required
               autoFocus
             />
@@ -104,6 +105,7 @@ export const CreateRidePage: React.FC = () => {
               placeholder="e.g. Juan, Captain Rider"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
+              onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
               required
             />
 

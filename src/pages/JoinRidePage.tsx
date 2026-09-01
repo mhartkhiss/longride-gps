@@ -71,7 +71,7 @@ export const JoinRidePage: React.FC = () => {
     <div className="w-full min-h-screen min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col justify-center items-center p-4 sm:p-6 py-6 sm:py-12 relative overflow-x-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-cyan-500/10 blur-[100px] rounded-full pointer-events-none" />
 
-      <div className="w-full max-w-md space-y-6 relative z-10 my-auto">
+      <div className="w-full max-w-md space-y-6 relative z-10 my-auto transition-transform duration-300 ease-out focus-within:-translate-y-6 sm:focus-within:translate-y-0">
         <button
           onClick={() => navigate('/')}
           className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
@@ -111,6 +111,7 @@ export const JoinRidePage: React.FC = () => {
                   placeholder="e.g. CEB824"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                  onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                   className="w-full bg-slate-900/80 border border-slate-700/80 text-brand-300 font-mono text-lg tracking-widest uppercase rounded-xl pl-10 pr-3.5 py-2.5 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
                   required
                 />
@@ -122,6 +123,7 @@ export const JoinRidePage: React.FC = () => {
               placeholder="e.g. Mark, Alex"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
+              onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
               required
             />
 
