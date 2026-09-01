@@ -22,6 +22,8 @@ interface RideState {
   setRoute: (route: RouteResult | null) => void;
   setRealtimeStatus: (status: 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR') => void;
   setOnlineUserIds: (userIds: string[]) => void;
+  addOnlineUserId: (userId: string) => void;
+  removeOnlineUserId: (userId: string) => void;
   setIsLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
   resetRide: () => void;
@@ -85,6 +87,18 @@ export const useRideStore = create<RideState>((set) => ({
   setRealtimeStatus: (realtimeStatus) => set({ realtimeStatus }),
 
   setOnlineUserIds: (onlineUserIds) => set({ onlineUserIds }),
+
+  addOnlineUserId: (userId) =>
+    set((state) => ({
+      onlineUserIds: state.onlineUserIds.includes(userId)
+        ? state.onlineUserIds
+        : [...state.onlineUserIds, userId],
+    })),
+
+  removeOnlineUserId: (userId) =>
+    set((state) => ({
+      onlineUserIds: state.onlineUserIds.filter((id) => id !== userId),
+    })),
 
   setIsLoading: (isLoading) => set({ isLoading }),
 

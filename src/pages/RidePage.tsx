@@ -37,6 +37,8 @@ export const RidePage: React.FC = () => {
     setRoute,
     setRealtimeStatus,
     setOnlineUserIds,
+    addOnlineUserId,
+    removeOnlineUserId,
     resetRide,
   } = useRideStore();
 
@@ -182,10 +184,14 @@ export const RidePage: React.FC = () => {
           try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(initialChatMsgs.slice(-100))); } catch {}
         }
 
+        // Optimistically set current user as online immediately with 0ms lag
+        setOnlineUserIds([activeUser.id]);
+
         // Subscribe to Supabase Realtime (Presence & Broadcast)
         const channel = new RideRealtimeChannel(rideId, {
           onLocationUpdate: (payload) => {
             updateRiderLocation(payload);
+            addOnlineUserId(payload.userId);
           },
           onRouteChange: (payload) => {
             if (payload.destinationLat && payload.destinationLng) {
@@ -209,6 +215,7 @@ export const RidePage: React.FC = () => {
             }
           },
           onChatMessage: (payload) => {
+            addOnlineUserId(payload.userId);
             setChatMessages((prev) => {
               if (prev.some((m) => m.id === payload.id)) return prev;
               const updated = [...prev, payload];
@@ -227,10 +234,13 @@ export const RidePage: React.FC = () => {
           },
           onPresenceSync: (state) => {
             const onlineIds = Object.keys(state);
-            setOnlineUserIds(onlineIds);
-            syncActiveRiders(onlineIds);
+            // Ensure current active user is always included
+            const allOnline = Array.from(new Set([activeUser.id, ...onlineIds]));
+            setOnlineUserIds(allOnline);
+            syncActiveRiders(allOnline);
           },
           onPresenceJoin: (_key, newPresence) => {
+            addOnlineUserId(newPresence.userId);
             addOrUpdateParticipant({
               id: newPresence.userId,
               ride_id: rideId,
@@ -259,6 +269,7 @@ export const RidePage: React.FC = () => {
           },
           onPresenceLeave: (_key, leftPresence) => {
             if (leftPresence?.userId) {
+              removeOnlineUserId(leftPresence.userId);
               removeParticipant(leftPresence.userId);
               removeRiderLocation(leftPresence.userId);
             }
