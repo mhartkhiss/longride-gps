@@ -33,3 +33,13 @@ export interface Destination {
   lng: number;
   name: string;
 }
+
+export interface RideMessage {
+  id: string;
+  ride_id: string;
+  user_id: string;
+  display_name: string;
+  text: string;
+  is_quick_alert: boolean;
+  created_at: string;
+}

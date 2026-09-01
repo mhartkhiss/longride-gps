@@ -129,6 +129,36 @@ export const RidePage: React.FC = () => {
         const participants = await RideService.getParticipants(rideId);
         if (isMounted) setParticipants(participants);
 
+        // Fetch & Restore Persistent Chat History
+        let initialChatMsgs: ChatMessagePayload[] = [];
+        try {
+          const cached = localStorage.getItem(`ride_chat_${rideId}`);
+          if (cached) initialChatMsgs = JSON.parse(cached);
+        } catch {}
+
+        try {
+          const dbMsgs = await RideService.getRideMessages(rideId);
+          if (dbMsgs && dbMsgs.length > 0) {
+            const mappedDb: ChatMessagePayload[] = dbMsgs.map((m) => ({
+              id: m.id,
+              userId: m.user_id,
+              displayName: m.display_name,
+              text: m.text,
+              timestamp: new Date(m.created_at).getTime(),
+              isQuickAlert: m.is_quick_alert,
+            }));
+            const merged = new Map<string, ChatMessagePayload>();
+            initialChatMsgs.forEach((m) => merged.set(m.id, m));
+            mappedDb.forEach((m) => merged.set(m.id, m));
+            initialChatMsgs = Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp);
+          }
+        } catch {}
+
+        if (isMounted) {
+          setChatMessages(initialChatMsgs);
+          try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(initialChatMsgs.slice(-100))); } catch {}
+        }
+
         // Subscribe to Supabase Realtime (Presence & Broadcast)
         const channel = new RideRealtimeChannel(rideId, {
           onLocationUpdate: (payload) => {
@@ -155,7 +185,12 @@ export const RidePage: React.FC = () => {
             }
           },
           onChatMessage: (payload) => {
-            setChatMessages((prev) => [...prev, payload]);
+            setChatMessages((prev) => {
+              if (prev.some((m) => m.id === payload.id)) return prev;
+              const updated = [...prev, payload];
+              try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100))); } catch {}
+              return updated;
+            });
             setUnreadCount((prev) => prev + 1);
           },
           onPresenceSync: (state) => {
@@ -324,7 +359,7 @@ export const RidePage: React.FC = () => {
   };
 
   const handleSendChatMessage = (text: string, isQuickAlert?: boolean) => {
-    if (!user) return;
+    if (!user || !rideId) return;
     const msg: ChatMessagePayload = {
       id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       userId: user.id,
@@ -333,8 +368,13 @@ export const RidePage: React.FC = () => {
       timestamp: Date.now(),
       isQuickAlert,
     };
-    setChatMessages((prev) => [...prev, msg]);
+    setChatMessages((prev) => {
+      const updated = [...prev, msg];
+      try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100))); } catch {}
+      return updated;
+    });
     realtimeChannelRef.current?.broadcastChatMessage(msg);
+    RideService.sendRideMessage(rideId, user.id, displayName || 'Rider', text, !!isQuickAlert).catch(() => {});
   };
 
   if (isLoading) {

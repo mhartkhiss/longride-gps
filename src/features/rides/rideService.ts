@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Destination, Ride, RideParticipant, RideStatus, VehicleMode } from '@/types/database';
+import { Destination, Ride, RideParticipant, RideStatus, VehicleMode, RideMessage } from '@/types/database';
 import { AuthService } from '@/features/auth/authService';
 
 export class RideService {
@@ -220,5 +220,54 @@ export class RideService {
       .from('ride_participants')
       .delete()
       .match({ ride_id: rideId, user_id: user.id });
+  }
+
+  /**
+   * Fetches persistent chat messages for a ride
+   */
+  static async getRideMessages(rideId: string): Promise<RideMessage[]> {
+    try {
+      const { data, error } = await supabase
+        .from('ride_messages')
+        .select('*')
+        .eq('ride_id', rideId)
+        .order('created_at', { ascending: true })
+        .limit(100);
+
+      if (error || !data) return [];
+      return data as RideMessage[];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Persists a chat message in the database
+   */
+  static async sendRideMessage(
+    rideId: string,
+    userId: string,
+    displayName: string,
+    text: string,
+    isQuickAlert: boolean = false
+  ): Promise<RideMessage | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ride_messages')
+        .insert({
+          ride_id: rideId,
+          user_id: userId,
+          display_name: displayName,
+          text,
+          is_quick_alert: isQuickAlert,
+        })
+        .select()
+        .single();
+
+      if (error || !data) return null;
+      return data as RideMessage;
+    } catch {
+      return null;
+    }
   }
 }
