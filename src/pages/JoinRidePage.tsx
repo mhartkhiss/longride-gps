@@ -68,7 +68,7 @@ export const JoinRidePage: React.FC = () => {
   };
 
   return (
-    <div className="w-full min-h-screen min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col justify-center items-center p-6 py-12 relative overflow-x-hidden">
+    <div className="w-full min-h-screen min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col justify-start sm:justify-center items-center p-4 sm:p-6 py-6 sm:py-12 relative overflow-x-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-cyan-500/10 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="w-full max-w-md space-y-6 relative z-10">
