@@ -13,10 +13,12 @@ import { HostControls } from '@/components/ride/HostControls';
 import { RiderListDrawer } from '@/components/ride/RiderListDrawer';
 import { RiderDetailCard } from '@/components/ride/RiderDetailCard';
 import { LocationStatusBadge } from '@/components/ride/LocationStatusBadge';
-import { Loader2, ArrowLeft, AlertCircle } from 'lucide-react';
+import { ChatModal } from '@/components/ride/ChatModal';
+import { Loader2, ArrowLeft, AlertCircle, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { GpsLocation } from '@/features/location/locationTypes';
 import { Destination } from '@/types/database';
+import { ChatMessagePayload } from '@/types/realtime';
 
 export const RidePage: React.FC = () => {
   const { rideId } = useParams<{ rideId: string }>();
@@ -58,6 +60,9 @@ export const RidePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const realtimeChannelRef = useRef<RideRealtimeChannel | null>(null);
   const throttleFilterRef = useRef<LocationThrottleFilter>(new LocationThrottleFilter());
@@ -148,6 +153,10 @@ export const RidePage: React.FC = () => {
               alert('The ride session has ended.');
               navigate('/');
             }
+          },
+          onChatMessage: (payload) => {
+            setChatMessages((prev) => [...prev, payload]);
+            setUnreadCount((prev) => prev + 1);
           },
           onPresenceSync: (state) => {
             const onlineIds = Object.keys(state);
@@ -314,6 +323,20 @@ export const RidePage: React.FC = () => {
     }
   };
 
+  const handleSendChatMessage = (text: string, isQuickAlert?: boolean) => {
+    if (!user) return;
+    const msg: ChatMessagePayload = {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      userId: user.id,
+      displayName: displayName || 'Rider',
+      text,
+      timestamp: Date.now(),
+      isQuickAlert,
+    };
+    setChatMessages((prev) => [...prev, msg]);
+    realtimeChannelRef.current?.broadcastChatMessage(msg);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 gap-3">
@@ -342,8 +365,27 @@ export const RidePage: React.FC = () => {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 flex flex-col">
       {/* Top Floating Glass Header */}
-      <header className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-center justify-end gap-1.5 sm:gap-2 pointer-events-none pt-[env(safe-area-inset-top)]">
-        {/* Controls & Status */}
+      <header className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-none pt-[env(safe-area-inset-top)]">
+        {/* Left: Chat Icon Button */}
+        <div className="pointer-events-auto">
+          <button
+            onClick={() => {
+              setIsChatOpen(true);
+              setUnreadCount(0);
+            }}
+            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl glass-panel border-white/10 flex items-center justify-center text-slate-200 hover:text-white hover:border-brand-500/50 shadow-xl transition-all active:scale-95 bg-slate-900/80"
+            title="Group Ride Chat"
+          >
+            <MessageSquare className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-brand-400" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-full flex items-center justify-center animate-bounce shadow">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Right: Controls & Status */}
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
           <LocationStatusBadge />
           {isHost && <HostControls realtimeChannel={realtimeChannelRef.current} />}
@@ -397,6 +439,17 @@ export const RidePage: React.FC = () => {
           onFocusRider={handleFocusRider}
         />
       </div>
+
+      {/* Realtime Group Ride Chat Modal */}
+      <ChatModal
+        isOpen={isChatOpen}
+        onClose={() => {
+          setIsChatOpen(false);
+          setUnreadCount(0);
+        }}
+        messages={chatMessages}
+        onSendMessage={handleSendChatMessage}
+      />
     </div>
   );
 };

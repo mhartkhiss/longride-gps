@@ -5,12 +5,14 @@ import {
   PresenceRiderState,
   RideEventBroadcastPayload,
   RouteUpdatedBroadcastPayload,
+  ChatMessagePayload,
 } from '@/types/realtime';
 
 export interface RideChannelHandlers {
   onLocationUpdate?: (payload: LocationBroadcastPayload) => void;
   onRouteChange?: (payload: RouteUpdatedBroadcastPayload) => void;
   onRideEvent?: (payload: RideEventBroadcastPayload) => void;
+  onChatMessage?: (payload: ChatMessagePayload) => void;
   onPresenceSync?: (presenceState: Record<string, PresenceRiderState[]>) => void;
   onPresenceJoin?: (key: string, newPresence: PresenceRiderState) => void;
   onPresenceLeave?: (key: string, leftPresence: PresenceRiderState) => void;
@@ -63,6 +65,14 @@ export class RideRealtimeChannel {
       { event: 'ride-event' },
       ({ payload }) => {
         this.handlers.onRideEvent?.(payload as RideEventBroadcastPayload);
+      }
+    );
+
+    this.channel.on(
+      'broadcast',
+      { event: 'chat' },
+      ({ payload }) => {
+        this.handlers.onChatMessage?.(payload as ChatMessagePayload);
       }
     );
 
@@ -169,6 +179,22 @@ export class RideRealtimeChannel {
       });
     } catch (err) {
       console.warn('Failed to broadcast ride event:', err);
+    }
+  }
+
+  /**
+   * Broadcasts real-time chat message to all riders in the room
+   */
+  async broadcastChatMessage(payload: ChatMessagePayload): Promise<void> {
+    if (!this.channel) return;
+    try {
+      await this.channel.send({
+        type: 'broadcast',
+        event: 'chat',
+        payload,
+      });
+    } catch (err) {
+      console.warn('Failed to broadcast chat message:', err);
     }
   }
 

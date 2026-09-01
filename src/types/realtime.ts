@@ -28,6 +28,15 @@ export interface RideEventBroadcastPayload {
   timestamp: number;
 }
 
+export interface ChatMessagePayload {
+  id: string;
+  userId: string;
+  displayName: string;
+  text: string;
+  timestamp: number;
+  isQuickAlert?: boolean;
+}
+
 export interface PresenceRiderState {
   userId: string;
   displayName: string;
