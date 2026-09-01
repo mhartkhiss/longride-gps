@@ -28,7 +28,7 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
   const { user } = useSessionStore();
 
   const totalParticipants = participants.length;
-  const onlineCount = onlineUserIds.length;
+  const onlineCount = participants.filter((p) => onlineUserIds.includes(p.user_id)).length || (participants.length > 0 ? 1 : 0);
 
   // Sort: Current user first, online riders second, offline riders last
   const sortedParticipants = [...participants].sort((a, b) => {
