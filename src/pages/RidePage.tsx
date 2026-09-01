@@ -363,9 +363,9 @@ export const RidePage: React.FC = () => {
   }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 flex flex-col">
+    <div className="relative w-full h-full h-[100dvh] overflow-hidden bg-slate-950 flex flex-col">
       {/* Top Floating Glass Header */}
-      <header className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-none pt-[env(safe-area-inset-top)]">
+      <header className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-30 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-none pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
         {/* Left: Chat Icon Button */}
         <div className="pointer-events-auto">
           <button
@@ -428,12 +428,12 @@ export const RidePage: React.FC = () => {
       )}
 
       {/* Selected Rider Detail / Follow Card (Opened on map icon tap) */}
-      <div className="absolute top-16 sm:top-auto sm:bottom-4 sm:left-[410px] left-3 right-3 sm:right-auto sm:w-80 z-40 pointer-events-none pb-[env(safe-area-inset-bottom)]">
+      <div className="absolute top-16 sm:top-auto sm:bottom-4 sm:left-[410px] left-3 right-3 sm:right-auto sm:w-80 z-40 pointer-events-none pb-[env(safe-area-inset-bottom,0px)]">
         <RiderDetailCard onFocusRider={handleFocusRider} />
       </div>
 
       {/* Bottom Floating Rider Drawer */}
-      <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:w-96 z-30 pointer-events-none pb-[env(safe-area-inset-bottom)]">
+      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-auto sm:w-96 z-30 pointer-events-none pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
         <RiderListDrawer
           onLeaveRide={handleLeaveRide}
           onFocusRider={handleFocusRider}

@@ -58,15 +58,15 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
       {/* Drawer Handle & Header */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className="px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between cursor-pointer select-none border-b border-white/5"
+        className="px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between cursor-pointer select-none border-b border-white/5 gap-2"
       >
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-brand-400 shrink-0">
             <Users className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[110px] xs:max-w-[150px] sm:max-w-[200px]">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[200px]">
                 {currentRide?.name || 'Group Ride'}
               </h3>
               <Badge variant="brand" size="sm" className="shrink-0 text-[9px] sm:text-[10px] px-1.5 py-0.2">
@@ -79,14 +79,14 @@ export const RiderListDrawer: React.FC<RiderListDrawerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {route && (
-            <div className="flex flex-col items-end text-xs mr-1">
-              <span className="font-bold text-brand-400 text-xs">{formatDistance(route.distanceMeters)}</span>
+            <div className="flex flex-col items-end text-xs mr-0.5">
+              <span className="font-bold text-brand-400 text-[11px] sm:text-xs">{formatDistance(route.distanceMeters)}</span>
               <span className="text-slate-400 text-[9px]">ETA: {formatDuration(route.durationSeconds)}</span>
             </div>
           )}
-          <button className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-white bg-slate-800/40 transition-colors">
+          <button className="p-1.5 rounded-xl text-slate-400 hover:text-white bg-slate-800/40 transition-colors shrink-0">
             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
         </div>
