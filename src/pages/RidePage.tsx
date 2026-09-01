@@ -68,6 +68,11 @@ export const RidePage: React.FC = () => {
   const throttleFilterRef = useRef<LocationThrottleFilter>(new LocationThrottleFilter());
   const userLocationRef = useRef<GpsLocation | null>(null);
   const isSharingLocationRef = useRef<boolean>(isSharingLocation);
+  const isChatOpenRef = useRef<boolean>(isChatOpen);
+
+  useEffect(() => {
+    isChatOpenRef.current = isChatOpen;
+  }, [isChatOpen]);
 
   useEffect(() => {
     userLocationRef.current = userLocation;
@@ -154,8 +159,20 @@ export const RidePage: React.FC = () => {
           }
         } catch {}
 
+        // Compute unread messages count comparing against last read timestamp
+        let lastReadTimestamp = 0;
+        try {
+          const savedLastRead = localStorage.getItem(`ride_chat_last_read_${rideId}`);
+          if (savedLastRead) lastReadTimestamp = parseInt(savedLastRead, 10) || 0;
+        } catch {}
+
+        const missedCount = initialChatMsgs.filter(
+          (m) => m.userId !== activeUser.id && m.timestamp > lastReadTimestamp
+        ).length;
+
         if (isMounted) {
           setChatMessages(initialChatMsgs);
+          setUnreadCount(missedCount);
           try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(initialChatMsgs.slice(-100))); } catch {}
         }
 
@@ -191,7 +208,15 @@ export const RidePage: React.FC = () => {
               try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100))); } catch {}
               return updated;
             });
-            setUnreadCount((prev) => prev + 1);
+
+            // Increment unread count only if modal is closed and message is not from current user
+            if (!isChatOpenRef.current && payload.userId !== activeUser.id) {
+              setUnreadCount((prev) => prev + 1);
+            } else if (isChatOpenRef.current) {
+              try {
+                localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
+              } catch {}
+            }
           },
           onPresenceSync: (state) => {
             const onlineIds = Object.keys(state);
@@ -377,6 +402,26 @@ export const RidePage: React.FC = () => {
     RideService.sendRideMessage(rideId, user.id, displayName || 'Rider', text, !!isQuickAlert).catch(() => {});
   };
 
+  const handleOpenChat = () => {
+    setIsChatOpen(true);
+    setUnreadCount(0);
+    if (rideId) {
+      try {
+        localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
+      } catch {}
+    }
+  };
+
+  const handleCloseChat = () => {
+    setIsChatOpen(false);
+    setUnreadCount(0);
+    if (rideId) {
+      try {
+        localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
+      } catch {}
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 gap-3">
@@ -409,10 +454,7 @@ export const RidePage: React.FC = () => {
         {/* Left: Chat Icon Button */}
         <div className="pointer-events-auto">
           <button
-            onClick={() => {
-              setIsChatOpen(true);
-              setUnreadCount(0);
-            }}
+            onClick={handleOpenChat}
             className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-900/85 hover:bg-slate-800 border border-brand-500/30 hover:border-brand-500/60 text-brand-400 hover:text-white flex items-center justify-center shadow-xl shadow-brand-500/10 backdrop-blur-md transition-all active:scale-95"
             title="Group Ride Chat"
           >
@@ -483,10 +525,7 @@ export const RidePage: React.FC = () => {
       {/* Realtime Group Ride Chat Modal */}
       <ChatModal
         isOpen={isChatOpen}
-        onClose={() => {
-          setIsChatOpen(false);
-          setUnreadCount(0);
-        }}
+        onClose={handleCloseChat}
         rideName={currentRide.name}
         messages={chatMessages}
         onSendMessage={handleSendChatMessage}
