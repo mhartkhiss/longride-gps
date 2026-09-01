@@ -3,16 +3,36 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Navigation, Users, Shield, ArrowRight, Compass } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
+import { RideService } from '@/features/rides/rideService';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const { initSession, isInitialized } = useSessionStore();
 
   useEffect(() => {
-    if (!isInitialized) {
-      initSession();
-    }
-  }, [initSession, isInitialized]);
+    const checkActiveRide = async () => {
+      const savedRideId = localStorage.getItem('longride_active_ride_id');
+      if (savedRideId) {
+        try {
+          const ride = await RideService.getRideById(savedRideId);
+          if (ride && ride.status !== 'ended') {
+            navigate(`/ride/${savedRideId}`, { replace: true });
+            return;
+          } else {
+            localStorage.removeItem('longride_active_ride_id');
+          }
+        } catch {
+          localStorage.removeItem('longride_active_ride_id');
+        }
+      }
+
+      if (!isInitialized) {
+        initSession();
+      }
+    };
+
+    checkActiveRide();
+  }, [navigate, initSession, isInitialized]);
 
   return (
     <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col justify-between p-6 sm:p-10 relative overflow-x-hidden overflow-y-auto">

@@ -119,15 +119,18 @@ export const RidePage: React.FC = () => {
         // Fetch Ride data
         const ride = await RideService.getRideById(rideId);
         if (!ride) {
+          localStorage.removeItem('longride_active_ride_id');
           throw new Error('Ride session not found or has expired.');
         }
 
         if (ride.status === 'ended') {
+          localStorage.removeItem('longride_active_ride_id');
           throw new Error('This ride session has already ended.');
         }
 
         if (!isMounted) return;
 
+        localStorage.setItem('longride_active_ride_id', rideId);
         setRide(ride, activeUser.id);
 
         // Fetch Participants
@@ -197,6 +200,7 @@ export const RidePage: React.FC = () => {
           },
           onRideEvent: (payload) => {
             if (payload.type === 'ride_ended') {
+              localStorage.removeItem('longride_active_ride_id');
               alert('The ride session has ended.');
               navigate('/');
             }
@@ -370,6 +374,7 @@ export const RidePage: React.FC = () => {
   const handleLeaveRide = async () => {
     if (!rideId) return;
     if (window.confirm('Are you sure you want to leave this ride?')) {
+      localStorage.removeItem('longride_active_ride_id');
       await RideService.leaveRide(rideId);
       navigate('/');
     }
