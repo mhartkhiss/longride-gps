@@ -16,6 +16,17 @@ interface RiderMarkerLayerProps {
   onSelectRider?: (userId: string) => void;
 }
 
+interface MarkerKinematics {
+  currentLng: number;
+  currentLat: number;
+  targetLng: number;
+  targetLat: number;
+  speed: number | null;
+  heading: number | null;
+  currentHeading: number | null;
+  lastPacketTime: number;
+}
+
 export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
   map,
   currentUserLocation,
@@ -28,8 +39,92 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
 }) => {
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const kinematicsRef = useRef<Map<string, MarkerKinematics>>(new Map());
+  const userKinematicsRef = useRef<MarkerKinematics | null>(null);
 
-  // 1. Manage Current User's Own Marker
+  // 1. Continuous 60fps Interpolation & Dead Reckoning Loop
+  useEffect(() => {
+    let animFrameId: number;
+
+    const animate = () => {
+      const now = performance.now();
+
+      // Smoothly glide current user marker
+      if (userMarkerRef.current && userKinematicsRef.current) {
+        const uk = userKinematicsRef.current;
+        const dLng = uk.targetLng - uk.currentLng;
+        const dLat = uk.targetLat - uk.currentLat;
+
+        if (Math.abs(dLng) > 0.0000005 || Math.abs(dLat) > 0.0000005) {
+          uk.currentLng += dLng * 0.15;
+          uk.currentLat += dLat * 0.15;
+          userMarkerRef.current.setLngLat([uk.currentLng, uk.currentLat]);
+        }
+
+        if (uk.heading !== null && uk.currentHeading !== null) {
+          let diff = ((uk.heading - uk.currentHeading + 180) % 360) - 180;
+          if (diff < -180) diff += 360;
+          if (Math.abs(diff) > 0.5) {
+            uk.currentHeading += diff * 0.18;
+            const arrow = userMarkerRef.current.getElement().querySelector('.heading-arrow') as HTMLElement | null;
+            if (arrow) arrow.style.transform = `rotate(${uk.currentHeading}deg)`;
+          }
+        }
+      }
+
+      // Smoothly glide other riders with Dead Reckoning forward extrapolation
+      markersRef.current.forEach((marker, userId) => {
+        const k = kinematicsRef.current.get(userId);
+        if (!k) return;
+
+        const elapsedMs = now - k.lastPacketTime;
+        let effTargetLng = k.targetLng;
+        let effTargetLat = k.targetLat;
+
+        // Dead reckoning: if packet is delayed (1.2s - 4.5s) on spotty mobile data, project along heading vector
+        if (elapsedMs > 1200 && elapsedMs < 4500 && k.speed && k.speed > 1.2 && k.heading !== null) {
+          const delaySec = (elapsedMs - 1200) / 1000;
+          const projectedDist = Math.min(k.speed * delaySec, 65); // Cap forward projection to 65m max
+          const rad = (k.heading * Math.PI) / 180;
+          const projLat = (projectedDist * Math.cos(rad)) / 111320;
+          const projLng = (projectedDist * Math.sin(rad)) / (111320 * Math.cos((k.targetLat * Math.PI) / 180));
+          effTargetLng += projLng;
+          effTargetLat += projLat;
+        }
+
+        // LERP glide towards target
+        const dLng = effTargetLng - k.currentLng;
+        const dLat = effTargetLat - k.currentLat;
+
+        if (Math.abs(dLng) > 0.0000005 || Math.abs(dLat) > 0.0000005) {
+          k.currentLng += dLng * 0.12;
+          k.currentLat += dLat * 0.12;
+          marker.setLngLat([k.currentLng, k.currentLat]);
+        }
+
+        // Smooth heading turn
+        if (k.heading !== null && k.currentHeading !== null) {
+          let diff = ((k.heading - k.currentHeading + 180) % 360) - 180;
+          if (diff < -180) diff += 360;
+          if (Math.abs(diff) > 0.5) {
+            k.currentHeading += diff * 0.18;
+            const arrow = marker.getElement().querySelector('.rider-heading') as HTMLElement | null;
+            if (arrow) arrow.style.transform = `rotate(${k.currentHeading}deg)`;
+          }
+        }
+      });
+
+      animFrameId = requestAnimationFrame(animate);
+    };
+
+    animFrameId = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(animFrameId);
+    };
+  }, []);
+
+  // 2. Manage Current User's Own Marker
   useEffect(() => {
     if (!map) return;
 
@@ -38,10 +133,31 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
         userMarkerRef.current.remove();
         userMarkerRef.current = null;
       }
+      userKinematicsRef.current = null;
       return;
     }
 
     const { lng, lat, heading, speed } = currentUserLocation;
+    const now = performance.now();
+
+    if (!userKinematicsRef.current) {
+      userKinematicsRef.current = {
+        currentLng: lng,
+        currentLat: lat,
+        targetLng: lng,
+        targetLat: lat,
+        speed,
+        heading,
+        currentHeading: heading,
+        lastPacketTime: now,
+      };
+    } else {
+      userKinematicsRef.current.targetLng = lng;
+      userKinematicsRef.current.targetLat = lat;
+      userKinematicsRef.current.speed = speed;
+      userKinematicsRef.current.heading = heading;
+      userKinematicsRef.current.lastPacketTime = now;
+    }
 
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
@@ -55,7 +171,7 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
             </svg>
           </div>
         </div>
-        <div class="mt-1 px-2 py-0.5 bg-slate-900/90 text-brand-400 text-[10px] font-bold rounded-md border border-brand-500/40 shadow-lg whitespace-nowrap">
+        <div class="mt-1 px-2 py-0.5 bg-slate-900/90 text-brand-400 text-[10px] font-bold rounded-md border border-brand-500/40 shadow-lg whitespace-nowrap user-speed-label">
           You (${formatSpeed(speed)})
         </div>
       `;
@@ -68,20 +184,20 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
 
       userMarkerRef.current = marker;
     } else {
-      userMarkerRef.current.setLngLat([lng, lat]);
       const el = userMarkerRef.current.getElement();
-      const arrow = el.querySelector('.heading-arrow') as HTMLElement | null;
-      if (arrow && heading !== null) {
-        arrow.style.transform = `rotate(${heading}deg)`;
+      const speedLabel = el.querySelector('.user-speed-label');
+      if (speedLabel) {
+        speedLabel.textContent = `You (${formatSpeed(speed)})`;
       }
     }
   }, [map, currentUserLocation, currentUserId, currentDisplayName, onSelectRider]);
 
-  // 2. Manage Other Riders' Markers
+  // 3. Manage Other Riders' Markers
   useEffect(() => {
     if (!map) return;
 
     const currentMarkers = markersRef.current;
+    const now = performance.now();
 
     // Deduplicate active riders by displayName (keep newest timestamp)
     const newestRiderByDisplayName = new Map<string, LocationBroadcastPayload>();
@@ -102,10 +218,11 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
       if (!activeRiderIds.has(riderId) || riderId === currentUserId) {
         marker.remove();
         currentMarkers.delete(riderId);
+        kinematicsRef.current.delete(riderId);
       }
     });
 
-    // Add / Update markers for active riders
+    // Add / Update kinematic targets for active riders
     activeUniqueLocations.forEach((loc) => {
       if (loc.userId === currentUserId) return;
 
@@ -115,8 +232,28 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
       const isStale = Date.now() - loc.timestamp > 30000;
 
       let marker = currentMarkers.get(loc.userId);
-
       const isFollowed = followingUserId === loc.userId;
+
+      // Update kinematics target
+      const k = kinematicsRef.current.get(loc.userId);
+      if (!k) {
+        kinematicsRef.current.set(loc.userId, {
+          currentLng: loc.lng,
+          currentLat: loc.lat,
+          targetLng: loc.lng,
+          targetLat: loc.lat,
+          speed: loc.speed,
+          heading: loc.heading,
+          currentHeading: loc.heading,
+          lastPacketTime: now,
+        });
+      } else {
+        k.targetLng = loc.lng;
+        k.targetLat = loc.lat;
+        k.speed = loc.speed;
+        k.heading = loc.heading;
+        k.lastPacketTime = now;
+      }
 
       if (!marker) {
         const el = document.createElement('div');
@@ -147,14 +284,8 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
 
         currentMarkers.set(loc.userId, marker);
       } else {
-        marker.setLngLat([loc.lng, loc.lat]);
         const el = marker.getElement();
         el.style.opacity = isStale ? '0.5' : '1';
-
-        const arrow = el.querySelector('.rider-heading') as HTMLElement | null;
-        if (arrow && loc.heading !== null) {
-          arrow.style.transform = `rotate(${loc.heading}deg)`;
-        }
 
         const label = el.querySelector('.rider-label');
         if (label) {
@@ -162,11 +293,7 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
         }
       }
     });
-
-    return () => {
-      // Cleanup when unmounting
-    };
-  }, [map, riderLocations, participants, currentUserId, onSelectRider]);
+  }, [map, riderLocations, participants, currentUserId, followingUserId, onSelectRider]);
 
   // Clean up all markers on component unmount
   useEffect(() => {
@@ -177,6 +304,8 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
       }
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current.clear();
+      kinematicsRef.current.clear();
+      userKinematicsRef.current = null;
     };
   }, []);
 

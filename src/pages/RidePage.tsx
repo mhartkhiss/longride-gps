@@ -5,7 +5,8 @@ import { useMapStore } from '@/stores/mapStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { RideService } from '@/features/rides/rideService';
 import { GeolocationService } from '@/features/location/geolocation';
-import { LocationThrottleFilter } from '@/features/location/locationThrottle';
+import { LocationThrottleFilter, sanitizeGpsPayload } from '@/features/location/locationThrottle';
+import { screenWakeLock } from '@/lib/wakeLock';
 import { RideRealtimeChannel } from '@/features/realtime/rideChannel';
 import { MapboxDirectionsService } from '@/features/routing/mapboxDirections';
 import { RideMap } from '@/components/map/RideMap';
@@ -74,6 +75,7 @@ export const RidePage: React.FC = () => {
   const userLocationRef = useRef<GpsLocation | null>(null);
   const isSharingLocationRef = useRef<boolean>(isSharingLocation);
   const isChatOpenRef = useRef<boolean>(isChatOpen);
+  const lastRiderTimestampsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -190,6 +192,11 @@ export const RidePage: React.FC = () => {
         // Subscribe to Supabase Realtime (Presence & Broadcast)
         const channel = new RideRealtimeChannel(rideId, {
           onLocationUpdate: (payload) => {
+            const lastTimestamp = lastRiderTimestampsRef.current.get(payload.userId) || 0;
+            if (payload.timestamp && payload.timestamp < lastTimestamp) {
+              return; // Stale packet delayed by cellular jitter; ignore
+            }
+            lastRiderTimestampsRef.current.set(payload.userId, payload.timestamp);
             updateRiderLocation(payload);
             addOnlineUserId(payload.userId);
           },
@@ -327,6 +334,9 @@ export const RidePage: React.FC = () => {
 
     setupSessionAndRide();
 
+    // Prevent phone screen from locking / sleeping while riding
+    screenWakeLock.acquire();
+
     // 3. Start Geolocation Watcher
     GeolocationService.startWatching(
       (pos) => {
@@ -335,25 +345,26 @@ export const RidePage: React.FC = () => {
         userLocationRef.current = pos;
         setPermissionError(null);
 
-        // Broadcast position if allowed and passes throttle filter
+        // Broadcast position if allowed and passes adaptive throttle filter
         if (
           isSharingLocationRef.current &&
           realtimeChannelRef.current &&
           throttleFilterRef.current.shouldBroadcast(pos)
         ) {
+          const clean = sanitizeGpsPayload(pos);
           const payload = {
             userId: user?.id || '',
             displayName: displayName || 'Rider',
             vehicleType: vehicleType || 'motorcycle',
-            lat: pos.lat,
-            lng: pos.lng,
-            accuracy: pos.accuracy,
-            heading: pos.heading,
-            speed: pos.speed,
-            timestamp: pos.timestamp,
+            lat: clean.lat,
+            lng: clean.lng,
+            accuracy: clean.accuracy,
+            heading: clean.heading,
+            speed: clean.speed,
+            timestamp: clean.timestamp,
           };
           realtimeChannelRef.current.broadcastLocation(payload);
-          realtimeChannelRef.current.updatePresence({ location: payload });
+          // Note: updatePresence removed from high-frequency GPS ticks to avoid mobile socket congestion
         }
       },
       (geoError) => {
@@ -365,9 +376,26 @@ export const RidePage: React.FC = () => {
       }
     );
 
+    // Low-frequency heartbeat (60s) to keep presence active without flooding the mobile socket
+    const presenceHeartbeat = setInterval(() => {
+      if (isMounted && realtimeChannelRef.current && userLocationRef.current) {
+        const clean = sanitizeGpsPayload(userLocationRef.current);
+        realtimeChannelRef.current.updatePresence({
+          location: {
+            userId: user?.id || '',
+            displayName: displayName || 'Rider',
+            vehicleType: vehicleType || 'motorcycle',
+            ...clean,
+          },
+        });
+      }
+    }, 60000);
+
     // Cleanup on unmount
     return () => {
       isMounted = false;
+      screenWakeLock.release();
+      clearInterval(presenceHeartbeat);
       GeolocationService.stopWatching();
       if (realtimeChannelRef.current) {
         realtimeChannelRef.current.unsubscribe();
