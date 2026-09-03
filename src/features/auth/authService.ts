@@ -39,4 +39,53 @@ export class AuthService {
     const { data: { user } } = await supabase.auth.getUser();
     return user;
   }
+
+  /**
+   * Triggers OAuth flow with Google or Facebook
+   */
+  static async signInWithOAuth(provider: 'google' | 'facebook'): Promise<void> {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
+    });
+    if (error) {
+      console.error(`OAuth sign-in error (${provider}):`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Signs the user out
+   */
+  static async signOut(): Promise<void> {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Sign-out error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Extracts display name and avatar URL from OAuth provider metadata
+   */
+  static extractUserProfile(user: User | null): { displayName: string; avatarUrl: string | null } {
+    if (!user) return { displayName: '', avatarUrl: null };
+    const meta = user.user_metadata || {};
+    const displayName =
+      meta.full_name ||
+      meta.name ||
+      meta.user_name ||
+      meta.preferred_username ||
+      (user.email ? user.email.split('@')[0] : 'Rider');
+
+    const avatarUrl =
+      meta.avatar_url ||
+      meta.picture ||
+      meta.avatar ||
+      null;
+
+    return { displayName, avatarUrl };
+  }
 }

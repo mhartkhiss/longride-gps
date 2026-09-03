@@ -23,6 +23,7 @@ export interface RideParticipant {
   user_id: string;
   display_name: string;
   vehicle_type: string | null;
+  avatar_url?: string | null;
   is_host: boolean;
   joined_at: string;
   last_seen_at: string;

@@ -31,7 +31,8 @@ export class RideService {
     name: string,
     vehicleMode: VehicleMode = 'driving',
     displayName: string,
-    vehicleType: string = 'motorcycle'
+    vehicleType: string = 'motorcycle',
+    avatarUrl?: string | null
   ): Promise<{ ride: Ride; participant: RideParticipant }> {
     let { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -59,17 +60,33 @@ export class RideService {
     }
 
     // 2. Insert host into participants
-    const { data: participantData, error: participantError } = await supabase
+    const hostPayload: Record<string, unknown> = {
+      ride_id: rideData.id,
+      user_id: user.id,
+      display_name: displayName,
+      vehicle_type: vehicleType,
+      is_host: true,
+    };
+    if (avatarUrl) {
+      hostPayload.avatar_url = avatarUrl;
+    }
+
+    let { data: participantData, error: participantError } = await supabase
       .from('ride_participants')
-      .insert({
-        ride_id: rideData.id,
-        user_id: user.id,
-        display_name: displayName,
-        vehicle_type: vehicleType,
-        is_host: true,
-      })
+      .insert(hostPayload)
       .select()
       .single();
+
+    if (participantError && participantError.message.includes('avatar_url')) {
+      delete hostPayload.avatar_url;
+      const retry = await supabase
+        .from('ride_participants')
+        .insert(hostPayload)
+        .select()
+        .single();
+      participantData = retry.data;
+      participantError = retry.error;
+    }
 
     if (participantError || !participantData) {
       throw new Error(participantError?.message || 'Failed to register host participant');
@@ -114,7 +131,8 @@ export class RideService {
   static async joinRide(
     rideId: string,
     displayName: string,
-    vehicleType: string = 'motorcycle'
+    vehicleType: string = 'motorcycle',
+    avatarUrl?: string | null
   ): Promise<RideParticipant> {
     let { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -122,20 +140,33 @@ export class RideService {
     }
     if (!user) throw new Error('Could not establish rider session. Please check your connection.');
 
-    const { data, error } = await supabase
+    const participantPayload: Record<string, unknown> = {
+      ride_id: rideId,
+      user_id: user.id,
+      display_name: displayName,
+      vehicle_type: vehicleType,
+      last_seen_at: new Date().toISOString(),
+    };
+    if (avatarUrl) {
+      participantPayload.avatar_url = avatarUrl;
+    }
+
+    let { data, error } = await supabase
       .from('ride_participants')
-      .upsert(
-        {
-          ride_id: rideId,
-          user_id: user.id,
-          display_name: displayName,
-          vehicle_type: vehicleType,
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: 'ride_id,user_id' }
-      )
+      .upsert(participantPayload, { onConflict: 'ride_id,user_id' })
       .select()
       .single();
+
+    if (error && error.message.includes('avatar_url')) {
+      delete participantPayload.avatar_url;
+      const retry = await supabase
+        .from('ride_participants')
+        .upsert(participantPayload, { onConflict: 'ride_id,user_id' })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error || !data) {
       throw new Error(error?.message || 'Failed to join ride');

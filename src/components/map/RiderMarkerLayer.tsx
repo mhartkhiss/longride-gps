@@ -8,6 +8,7 @@ import { getRiderColor, formatSpeed } from '@/lib/utils';
 interface RiderMarkerLayerProps {
   map: mapboxgl.Map | null;
   currentUserLocation: GpsLocation | null;
+  currentUserAvatarUrl?: string | null;
   currentUserId: string;
   currentDisplayName: string;
   riderLocations: Record<string, LocationBroadcastPayload>;
@@ -30,6 +31,7 @@ interface MarkerKinematics {
 export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
   map,
   currentUserLocation,
+  currentUserAvatarUrl,
   currentUserId,
   currentDisplayName,
   riderLocations,
@@ -164,12 +166,23 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
       el.className = 'relative flex flex-col items-center cursor-pointer group';
       el.innerHTML = `
         <div class="relative flex items-center justify-center">
-          <div class="absolute -inset-3 bg-brand-500/20 rounded-full animate-ping"></div>
-          <div class="relative w-9 h-9 bg-brand-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-slate-950 font-black text-xs">
-            <svg class="w-5 h-5 transition-transform duration-300 heading-arrow" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-            </svg>
-          </div>
+          <div class="absolute -inset-2.5 bg-brand-500/20 rounded-full animate-ping"></div>
+          ${
+            currentUserAvatarUrl
+              ? `<div class="relative w-10 h-10 rounded-full border-2 border-brand-400 shadow-xl overflow-hidden bg-slate-900 flex items-center justify-center">
+                   <img src="${currentUserAvatarUrl}" alt="You" class="w-full h-full object-cover rounded-full" />
+                 </div>
+                 <div class="absolute -top-1 w-4 h-4 bg-brand-400 rounded-full flex items-center justify-center shadow-md border border-slate-900 heading-arrow transition-transform duration-300">
+                   <svg class="w-2.5 h-2.5 text-slate-950" viewBox="0 0 24 24" fill="currentColor">
+                     <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                   </svg>
+                 </div>`
+              : `<div class="relative w-9 h-9 bg-brand-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-slate-950 font-black text-xs">
+                   <svg class="w-5 h-5 transition-transform duration-300 heading-arrow" viewBox="0 0 24 24" fill="currentColor">
+                     <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                   </svg>
+                 </div>`
+          }
         </div>
         <div class="mt-1 px-2 py-0.5 bg-slate-900/90 text-brand-400 text-[10px] font-bold rounded-md border border-brand-500/40 shadow-lg whitespace-nowrap user-speed-label">
           You (${formatSpeed(speed)})
@@ -190,7 +203,7 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
         speedLabel.textContent = `You (${formatSpeed(speed)})`;
       }
     }
-  }, [map, currentUserLocation, currentUserId, currentDisplayName, onSelectRider]);
+  }, [map, currentUserLocation, currentUserAvatarUrl, currentUserId, currentDisplayName, onSelectRider]);
 
   // 3. Manage Other Riders' Markers
   useEffect(() => {
@@ -256,17 +269,30 @@ export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
       }
 
       if (!marker) {
+        const avatarUrl = loc.avatarUrl || participant?.avatar_url || null;
         const el = document.createElement('div');
         el.className = 'relative flex flex-col items-center cursor-pointer transition-all duration-300 group';
         el.innerHTML = `
           <div class="relative flex items-center justify-center">
             ${isFollowed ? '<div class="absolute -inset-2 bg-purple-500/40 rounded-full animate-ping"></div>' : ''}
-            <div class="relative w-8 h-8 rounded-full border-2 ${isFollowed ? 'border-purple-300 ring-4 ring-purple-500/40' : 'border-white/90'} shadow-xl flex items-center justify-center text-white font-bold text-xs transition-all" style="background-color: ${color}">
-              ${isHost ? '<span class="absolute -top-2.5 text-amber-400 text-xs">👑</span>' : ''}
-              <svg class="w-4 h-4 transition-transform duration-300 rider-heading" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-              </svg>
-            </div>
+            ${
+              avatarUrl
+                ? `<div class="relative w-9 h-9 rounded-full border-2 ${isFollowed ? 'border-purple-300 ring-4 ring-purple-500/40' : 'border-white/90'} shadow-xl overflow-hidden bg-slate-900 flex items-center justify-center" style="border-color: ${color}">
+                     <img src="${avatarUrl}" alt="${loc.displayName}" class="w-full h-full object-cover rounded-full" />
+                     ${isHost ? '<span class="absolute -top-1 -right-1 text-amber-400 text-xs drop-shadow">👑</span>' : ''}
+                   </div>
+                   <div class="absolute -top-1 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow-md border border-slate-900 rider-heading transition-transform duration-300" style="background-color: ${color}">
+                     <svg class="w-2 h-2 text-white" viewBox="0 0 24 24" fill="currentColor">
+                       <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                     </svg>
+                   </div>`
+                : `<div class="relative w-8 h-8 rounded-full border-2 ${isFollowed ? 'border-purple-300 ring-4 ring-purple-500/40' : 'border-white/90'} shadow-xl flex items-center justify-center text-white font-bold text-xs transition-all" style="background-color: ${color}">
+                     ${isHost ? '<span class="absolute -top-2.5 text-amber-400 text-xs">👑</span>' : ''}
+                     <svg class="w-4 h-4 transition-transform duration-300 rider-heading" viewBox="0 0 24 24" fill="currentColor">
+                       <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                     </svg>
+                   </div>`
+            }
           </div>
           <div class="mt-1 px-2 py-0.5 ${isFollowed ? 'bg-purple-950/90 text-purple-200 border-purple-500/60 font-bold' : 'bg-slate-900/90 text-white border-slate-700/60 font-semibold'} text-[10px] rounded-md border shadow-lg whitespace-nowrap rider-label">
             ${isFollowed ? '🎯 ' : ''}${loc.displayName || 'Rider'}

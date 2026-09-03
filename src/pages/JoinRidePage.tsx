@@ -9,7 +9,7 @@ import { RideService } from '@/features/rides/rideService';
 export const JoinRidePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { displayName, vehicleType, setDisplayName, initSession, isInitialized } = useSessionStore();
+  const { displayName, avatarUrl, vehicleType, setDisplayName, initSession, isInitialized, isAuthenticated } = useSessionStore();
 
   const [roomCode, setRoomCode] = useState(searchParams.get('code') || '');
   const [nameInput, setNameInput] = useState(displayName);
@@ -34,7 +34,9 @@ export const JoinRidePage: React.FC = () => {
       setError('Please enter a valid room code');
       return;
     }
-    if (!nameInput.trim()) {
+
+    const effectiveName = isAuthenticated ? displayName : nameInput.trim();
+    if (!effectiveName) {
       setError('Please enter your rider display name');
       return;
     }
@@ -44,7 +46,9 @@ export const JoinRidePage: React.FC = () => {
 
     try {
       await initSession();
-      setDisplayName(nameInput.trim());
+      if (!isAuthenticated) {
+        setDisplayName(effectiveName);
+      }
 
       // 1. Look up ride by code
       const ride = await RideService.getRideByCode(cleanCode);
@@ -55,7 +59,7 @@ export const JoinRidePage: React.FC = () => {
       }
 
       // 2. Join as participant
-      await RideService.joinRide(ride.id, nameInput.trim(), vehicleType || 'motorcycle');
+      await RideService.joinRide(ride.id, effectiveName, vehicleType || 'motorcycle', avatarUrl);
 
       // 3. Navigate to ride room
       navigate(`/ride/${ride.id}`);
@@ -127,14 +131,39 @@ export const JoinRidePage: React.FC = () => {
               </div>
             </div>
 
-            <Input
-              label="Your Display Name"
-              placeholder="e.g. Mark, Alex"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onFocus={handleInputFocus}
-              required
-            />
+            {isAuthenticated ? (
+              <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={displayName}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-cyan-400"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-sm flex items-center justify-center border border-cyan-500/40">
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">Joining As</p>
+                    <p className="text-sm font-bold text-white leading-none mt-0.5">{displayName}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] px-2.5 py-1 rounded-full bg-cyan-500/15 text-cyan-300 font-semibold border border-cyan-500/30">
+                  Logged In
+                </span>
+              </div>
+            ) : (
+              <Input
+                label="Your Display Name"
+                placeholder="e.g. Mark, Alex"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onFocus={handleInputFocus}
+                required
+              />
+            )}
 
             {error && (
               <div className="p-3 bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs rounded-xl">

@@ -59,7 +59,7 @@ export const RidePage: React.FC = () => {
     setSelectedUserId,
   } = useMapStore();
 
-  const { user, displayName, vehicleType, initSession } = useSessionStore();
+  const { user, displayName, avatarUrl, vehicleType, initSession } = useSessionStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +254,7 @@ export const RidePage: React.FC = () => {
               user_id: newPresence.userId,
               display_name: newPresence.displayName,
               vehicle_type: newPresence.vehicleType,
+              avatar_url: newPresence.avatarUrl,
               is_host: newPresence.isHost,
               joined_at: new Date(newPresence.joinedAt).toISOString(),
               last_seen_at: new Date().toISOString(),
@@ -265,6 +266,7 @@ export const RidePage: React.FC = () => {
                 userId: activeUser.id,
                 displayName: displayName || 'Rider',
                 vehicleType: vehicleType || 'motorcycle',
+                avatarUrl: avatarUrl || undefined,
                 lat: userLocationRef.current.lat,
                 lng: userLocationRef.current.lng,
                 accuracy: userLocationRef.current.accuracy,
@@ -293,6 +295,7 @@ export const RidePage: React.FC = () => {
           displayName: displayName || 'Rider',
           isHost: ride.host_user_id === activeUser.id,
           vehicleType: vehicleType || 'motorcycle',
+          avatarUrl: avatarUrl || undefined,
           joinedAt: Date.now(),
           onlineAt: Date.now(),
           location: userLocationRef.current
@@ -300,6 +303,7 @@ export const RidePage: React.FC = () => {
                 userId: activeUser.id,
                 displayName: displayName || 'Rider',
                 vehicleType: vehicleType || 'motorcycle',
+                avatarUrl: avatarUrl || undefined,
                 lat: userLocationRef.current.lat,
                 lng: userLocationRef.current.lng,
                 accuracy: userLocationRef.current.accuracy,
@@ -356,6 +360,7 @@ export const RidePage: React.FC = () => {
             userId: user?.id || '',
             displayName: displayName || 'Rider',
             vehicleType: vehicleType || 'motorcycle',
+            avatarUrl: avatarUrl || undefined,
             lat: clean.lat,
             lng: clean.lng,
             accuracy: clean.accuracy,
@@ -385,6 +390,7 @@ export const RidePage: React.FC = () => {
             userId: user?.id || '',
             displayName: displayName || 'Rider',
             vehicleType: vehicleType || 'motorcycle',
+            avatarUrl: avatarUrl || undefined,
             ...clean,
           },
         });

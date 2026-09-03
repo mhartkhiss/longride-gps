@@ -9,7 +9,7 @@ import { VehicleMode } from '@/types/database';
 
 export const CreateRidePage: React.FC = () => {
   const navigate = useNavigate();
-  const { displayName, vehicleType, setDisplayName, setVehicleType, initSession, isInitialized } = useSessionStore();
+  const { displayName, avatarUrl, vehicleType, setDisplayName, setVehicleType, initSession, isInitialized, isAuthenticated } = useSessionStore();
 
   const [rideName, setRideName] = useState('');
   const [nameInput, setNameInput] = useState(displayName);
@@ -34,7 +34,9 @@ export const CreateRidePage: React.FC = () => {
       setError('Please provide a ride session name');
       return;
     }
-    if (!nameInput.trim()) {
+
+    const effectiveName = isAuthenticated ? displayName : nameInput.trim();
+    if (!effectiveName) {
       setError('Please enter your rider display name');
       return;
     }
@@ -44,14 +46,17 @@ export const CreateRidePage: React.FC = () => {
 
     try {
       await initSession();
-      setDisplayName(nameInput.trim());
+      if (!isAuthenticated) {
+        setDisplayName(effectiveName);
+      }
       setVehicleType(selectedVehicle);
 
       const { ride } = await RideService.createRide(
         rideName.trim(),
         mode,
-        nameInput.trim(),
-        selectedVehicle
+        effectiveName,
+        selectedVehicle,
+        avatarUrl
       );
 
       navigate(`/ride/${ride.id}`);
@@ -108,14 +113,39 @@ export const CreateRidePage: React.FC = () => {
               required
             />
 
-            <Input
-              label="Your Display Name"
-              placeholder="e.g. Juan, Captain Rider"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              onFocus={handleInputFocus}
-              required
-            />
+            {isAuthenticated ? (
+              <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={displayName}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-brand-400"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-brand-500/20 text-brand-400 font-bold text-sm flex items-center justify-center border border-brand-500/40">
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-brand-400">Hosting As</p>
+                    <p className="text-sm font-bold text-white leading-none mt-0.5">{displayName}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] px-2.5 py-1 rounded-full bg-brand-500/15 text-brand-300 font-semibold border border-brand-500/30">
+                  Logged In
+                </span>
+              </div>
+            ) : (
+              <Input
+                label="Your Display Name"
+                placeholder="e.g. Juan, Captain Rider"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onFocus={handleInputFocus}
+                required
+              />
+            )}
 
             {/* Vehicle Mode Selector */}
             <div className="space-y-1.5">

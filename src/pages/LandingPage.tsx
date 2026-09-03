@@ -1,13 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
-import { Navigation, Users, Shield, ArrowRight, Compass } from 'lucide-react';
+import { Navigation, Users, Shield, ArrowRight, Compass, LogIn, LogOut } from 'lucide-react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { RideService } from '@/features/rides/rideService';
+import { AuthModal } from '@/components/auth/AuthModal';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { initSession, isInitialized } = useSessionStore();
+  const { initSession, isInitialized, isAuthenticated, displayName, avatarUrl, signOut } = useSessionStore();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   useEffect(() => {
     const checkActiveRide = async () => {
@@ -50,6 +52,45 @@ export const LandingPage: React.FC = () => {
             <span className="text-lg font-black tracking-tight text-white">LongRide</span>
             <span className="text-xs font-extrabold text-brand-400 ml-1 tracking-wider uppercase">GPS</span>
           </div>
+        </div>
+
+        {/* User Profile / Login Header Action */}
+        <div className="flex items-center gap-3">
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2.5 bg-slate-900/80 border border-white/10 rounded-full pl-1.5 pr-3 py-1">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName}
+                  className="w-7 h-7 rounded-full object-cover border border-brand-400/50"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-brand-500/20 text-brand-400 text-xs font-bold flex items-center justify-center border border-brand-500/30">
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span className="text-xs font-semibold text-white max-w-[100px] truncate hidden sm:inline">
+                {displayName}
+              </span>
+              <button
+                onClick={() => signOut()}
+                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-full"
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="gap-1.5 bg-slate-800/90 hover:bg-slate-700 text-xs border border-white/10 px-3.5"
+            >
+              <LogIn className="w-3.5 h-3.5 text-brand-400" />
+              <span>Log In</span>
+            </Button>
+          )}
         </div>
       </header>
 
@@ -131,6 +172,9 @@ export const LandingPage: React.FC = () => {
       <footer className="relative z-10 text-center text-xs text-slate-500 max-w-5xl mx-auto w-full py-4 border-t border-slate-800/60">
         LongRide GPS • Built for group rides & convoys
       </footer>
+
+      {/* OAuth Login Modal */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
     </div>
   );
 };

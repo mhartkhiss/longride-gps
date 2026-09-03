@@ -2,6 +2,7 @@ export interface LocationBroadcastPayload {
   userId: string;
   displayName: string;
   vehicleType?: string;
+  avatarUrl?: string | null;
   lat: number;
   lng: number;
   accuracy: number;
@@ -42,6 +43,7 @@ export interface PresenceRiderState {
   displayName: string;
   isHost: boolean;
   vehicleType: string;
+  avatarUrl?: string | null;
   joinedAt: number;
   onlineAt: number;
   location?: LocationBroadcastPayload;

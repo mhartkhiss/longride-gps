@@ -29,7 +29,7 @@ export const RideMap: React.FC = () => {
   } = useMapStore();
 
   const { currentRide, participants, destination, route } = useRideStore();
-  const { user, displayName } = useSessionStore();
+  const { user, displayName, avatarUrl } = useSessionStore();
 
   // 1. Initialize Mapbox Map
   useEffect(() => {
@@ -196,6 +196,7 @@ export const RideMap: React.FC = () => {
           <RiderMarkerLayer
             map={mapRef.current}
             currentUserLocation={userLocation}
+            currentUserAvatarUrl={avatarUrl}
             currentUserId={user?.id || ''}
             currentDisplayName={displayName}
             riderLocations={riderLocations}
