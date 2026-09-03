@@ -73,16 +73,39 @@ export class AuthService {
   static extractUserProfile(user: User | null): { displayName: string; avatarUrl: string | null } {
     if (!user) return { displayName: '', avatarUrl: null };
     const meta = user.user_metadata || {};
-    const displayName =
-      meta.full_name ||
-      meta.name ||
-      meta.user_name ||
-      meta.preferred_username ||
-      (user.email ? user.email.split('@')[0] : 'Rider');
 
+    let rawName = '';
+
+    // Check if first_name exists (Facebook often duplicates first_name as last_name when last_name is omitted)
+    if (meta.first_name) {
+      if (!meta.last_name || meta.first_name.trim().toLowerCase() === meta.last_name.trim().toLowerCase()) {
+        rawName = meta.first_name.trim();
+      } else {
+        rawName = `${meta.first_name.trim()} ${meta.last_name.trim()}`;
+      }
+    }
+
+    if (!rawName) {
+      rawName =
+        meta.full_name ||
+        meta.name ||
+        meta.user_name ||
+        meta.preferred_username ||
+        (user.email ? user.email.split('@')[0] : 'Rider');
+    }
+
+    // Clean duplicate first name if Facebook duplicated single name (e.g., "Alex Alex" -> "Alex")
+    let displayName = rawName.trim();
+    const parts = displayName.split(/\s+/);
+    if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+      displayName = parts[0];
+    }
+
+    // Support string URLs and Facebook Graph API nested picture object ({ data: { url: "..." } })
     const avatarUrl =
       meta.avatar_url ||
-      meta.picture ||
+      (typeof meta.picture === 'string' ? meta.picture : null) ||
+      (meta.picture && typeof meta.picture === 'object' && meta.picture.data?.url ? meta.picture.data.url : null) ||
       meta.avatar ||
       null;
 
