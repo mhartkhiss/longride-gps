@@ -51,34 +51,23 @@
   background: rgba(255, 255, 255, 0.3);
 }
 
-/* Mapbox Overrides for Sleek Dark Glass UI */
-.mapboxgl-canvas {
-  outline: none;
+/* We draw our own clear button on search fields */
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-/* Hide Mapbox default bottom attribution/logo so they do not clash with mobile floating bottom sheets */
-.mapboxgl-ctrl-bottom-left,
-.mapboxgl-ctrl-bottom-right,
-.mapboxgl-ctrl-logo,
-.mapboxgl-ctrl-attrib {
-  display: none !important;
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
-/* Marker Animation Classes */
-.marker-beacon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  border-radius: 9999px;
-  animation: beacon 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-/* Glass panel utility */
+/* ── Glass surfaces ─────────────────────────────────────────────── */
 .glass-panel {
-  background: rgba(17, 24, 39, 0.75);
+  background: rgba(17, 24, 39, 0.78);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -91,4 +80,305 @@
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(16, 185, 129, 0.3);
   box-shadow: 0 0 25px rgba(16, 185, 129, 0.15);
+}
+
+/* Floating map buttons: readable on both the day and night map */
+.map-fab {
+  background: rgba(15, 23, 42, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.map-fab--active {
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(6, 78, 59, 0.88);
+}
+
+/* ── Motion ─────────────────────────────────────────────────────── */
+@keyframes lr-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes lr-drop-in {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes lr-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes lr-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes lr-halo {
+  0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.55; }
+  100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; }
+}
+@keyframes lr-pin-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.lr-anim-sheet { animation: lr-sheet-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.lr-anim-drop { animation: lr-drop-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.lr-anim-fade { animation: lr-fade-in 200ms ease-out both; }
+.lr-anim-pop { animation: lr-pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lr-anim-sheet,
+  .lr-anim-drop,
+  .lr-anim-fade,
+  .lr-anim-pop {
+    animation: none;
+  }
+}
+
+/* ── Mapbox chrome ──────────────────────────────────────────────── */
+.mapboxgl-canvas {
+  outline: none;
+}
+
+/* Keep the required Mapbox logo & attribution visible just above the bottom sheet */
+.lr-map .mapboxgl-ctrl-bottom-left,
+.lr-map .mapboxgl-ctrl-bottom-right {
+  bottom: var(--lr-map-bottom, 0px);
+  transition: bottom 300ms ease;
+}
+.lr-map .mapboxgl-ctrl-bottom-left .mapboxgl-ctrl {
+  margin: 0 0 6px 12px;
+  opacity: 0.75;
+}
+.lr-map .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
+  margin: 0 12px 6px 0;
+}
+.lr-map .mapboxgl-ctrl-attrib.mapboxgl-compact {
+  background: rgba(15, 23, 42, 0.7);
+  color: #cbd5e1;
+}
+.lr-map .mapboxgl-ctrl-attrib.mapboxgl-compact a {
+  color: #e2e8f0;
+}
+
+/* ── Your puck (Google-Maps-style) ──────────────────────────────── */
+/* Mapbox sets an inline `pointer-events: auto` on markers; decorative ones must never eat taps */
+.lr-ground {
+  width: 0;
+  height: 0;
+  pointer-events: none !important;
+}
+.lr-ground > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.lr-accuracy {
+  width: 0;
+  height: 0;
+  border-radius: 9999px;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+.lr-accuracy--self {
+  background: rgba(59, 130, 246, 0.14);
+  border: 1.5px solid rgba(96, 165, 250, 0.5);
+}
+.lr-accuracy--rider {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1.5px dashed rgba(203, 213, 225, 0.45);
+}
+
+.lr-beam {
+  width: 96px;
+  height: 96px;
+  opacity: 0;
+  transition: opacity 300ms ease;
+  background: conic-gradient(from -38deg, rgba(59, 130, 246, 0) 0deg, rgba(59, 130, 246, 0.6) 38deg, rgba(59, 130, 246, 0) 76deg, transparent 76deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0%, #000 22%, transparent 70%);
+  mask-image: radial-gradient(circle, #000 0%, #000 22%, transparent 70%);
+}
+
+.lr-nav-arrow {
+  width: 38px;
+  height: 38px;
+  opacity: 0;
+  transition: opacity 250ms ease;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+}
+.lr-nav-arrow path {
+  fill: #2563eb;
+  stroke: #ffffff;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+}
+
+.lr-self-dot {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  pointer-events: none !important;
+  transition: opacity 250ms ease;
+}
+.lr-self-dot__core {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #2563eb;
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.lr-self-dot__halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.35);
+  animation: lr-halo 2.2s ease-out infinite;
+}
+.lr-self-dot--stale .lr-self-dot__core {
+  background: #94a3b8;
+}
+.lr-self-dot--stale .lr-self-dot__halo {
+  display: none;
+}
+
+/* ── Other riders ───────────────────────────────────────────────── */
+.lr-rider {
+  --rider-color: #10b981;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: opacity 400ms ease, filter 400ms ease;
+}
+.lr-rider__pin {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lr-rider__bubble {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  background: var(--rider-color);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 13px;
+  transition: box-shadow 200ms ease;
+}
+.lr-rider__bubble img {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+.lr-rider__crown {
+  position: absolute;
+  top: -11px;
+  right: -9px;
+  font-size: 14px;
+  font-style: normal;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+.lr-rider__pointer {
+  position: absolute;
+  inset: -8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+.lr-rider__pointer::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 9px solid var(--rider-color);
+  filter: drop-shadow(0 -1px 0 #ffffff) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+.lr-rider__label {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.lr-rider__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lr-rider__speed {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--rider-color);
+  font-variant-numeric: tabular-nums;
+}
+.lr-rider__speed::after {
+  content: ' km/h';
+  font-weight: 600;
+  opacity: 0.8;
+}
+.lr-rider--followed .lr-rider__bubble {
+  box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.6), 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.lr-rider--followed .lr-rider__label {
+  background: rgba(59, 7, 100, 0.92);
+  border-color: rgba(192, 132, 252, 0.6);
+}
+.lr-rider--stale {
+  opacity: 0.55;
+  filter: grayscale(0.75);
+}
+
+/* ── Destination picker pin ─────────────────────────────────────── */
+.lr-pick-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: lr-pin-bob 1.6s ease-in-out infinite;
+}
+.lr-pick-pin__head {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: #e11d48;
+  border: 4px solid #ffffff;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+.lr-pick-pin__stem {
+  width: 3px;
+  height: 16px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }

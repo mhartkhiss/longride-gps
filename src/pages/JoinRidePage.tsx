@@ -87,7 +87,7 @@ export const JoinRidePage: React.FC = () => {
       <div className="w-full max-w-md space-y-6 relative z-10 my-auto transition-transform duration-300 ease-out focus-within:-translate-y-6 sm:focus-within:translate-y-0">
         <button
           onClick={() => navigate('/')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-1.5 h-10 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Home</span>
@@ -123,9 +123,9 @@ export const JoinRidePage: React.FC = () => {
                   spellCheck={false}
                   placeholder="e.g. CEB824"
                   value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                   onFocus={handleInputFocus}
-                  className="w-full bg-slate-900/80 border border-slate-700/80 text-brand-300 font-mono text-lg tracking-widest uppercase rounded-xl pl-10 pr-3.5 py-2.5 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                  className="w-full h-14 bg-slate-900/80 border border-slate-700/80 text-brand-300 font-mono text-2xl font-bold tracking-[0.35em] uppercase rounded-2xl pl-11 pr-3.5 placeholder:text-slate-600 placeholder:tracking-widest placeholder:text-lg focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
                   required
                 />
               </div>
@@ -175,10 +175,10 @@ export const JoinRidePage: React.FC = () => {
               type="submit"
               variant="primary"
               size="lg"
-              className="w-full mt-2"
+              className="w-full mt-2 h-14 rounded-2xl"
               isLoading={isLoading}
             >
-              Join Ride Session
+              Join ride
             </Button>
           </form>
         </div>

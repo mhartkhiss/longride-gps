@@ -85,7 +85,7 @@ export const CreateRidePage: React.FC = () => {
         {/* Back Link */}
         <button
           onClick={() => navigate('/')}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-1.5 h-10 text-sm text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Home</span>
@@ -150,49 +150,53 @@ export const CreateRidePage: React.FC = () => {
             {/* Vehicle Mode Selector */}
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-slate-300">
-                Navigation Mode
+                How is the group travelling?
               </label>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => { setMode('driving'); setSelectedVehicle('motorcycle'); }}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                  className={`min-h-[76px] p-3 rounded-2xl border text-xs font-semibold flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] ${
                     mode === 'driving'
                       ? 'border-brand-500 bg-brand-500/15 text-brand-300'
                       : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Car className="w-4 h-4" />
-                  <span>Motor / Car</span>
+                  <Car className="w-5 h-5" />
+                  <span>Motorcycle / Car</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setMode('cycling'); setSelectedVehicle('bicycle'); }}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                  className={`min-h-[76px] p-3 rounded-2xl border text-xs font-semibold flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] ${
                     mode === 'cycling'
                       ? 'border-brand-500 bg-brand-500/15 text-brand-300'
                       : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Bike className="w-4 h-4" />
-                  <span>Cycling</span>
+                  <Bike className="w-5 h-5" />
+                  <span>Bicycle</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => { setMode('walking'); setSelectedVehicle('walking'); }}
-                  className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all ${
+                  className={`min-h-[76px] p-3 rounded-2xl border text-xs font-semibold flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] ${
                     mode === 'walking'
                       ? 'border-brand-500 bg-brand-500/15 text-brand-300'
                       : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Footprints className="w-4 h-4" />
-                  <span>Walking</span>
+                  <Footprints className="w-5 h-5" />
+                  <span>Walk / Hike</span>
                 </button>
               </div>
             </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Routes follow roads for motorcycles and cars, and use bike lanes, footpaths and trails for bicycles and hikes.
+            </p>
 
             {error && (
               <div className="p-3 bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs rounded-xl">
@@ -204,10 +208,10 @@ export const CreateRidePage: React.FC = () => {
               type="submit"
               variant="primary"
               size="lg"
-              className="w-full mt-2"
+              className="w-full mt-2 h-14 rounded-2xl"
               isLoading={isLoading}
             >
-              Start Ride & Get Code
+              Start ride & get code
             </Button>
           </form>
         </div>

@@ -1,100 +1,84 @@
 import React from 'react';
-import { Crosshair, Users, Layers, Plus, Minus, Compass } from 'lucide-react';
-import { CameraMode } from '@/stores/mapStore';
+import { Layers, Minus, Plus, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface MapControlsProps {
-  cameraMode: CameraMode;
-  onRecenter: () => void;
+  bearing: number;
+  showCompass: boolean;
+  isHeadingUp: boolean;
+  isFitGroup: boolean;
+  onCompass: () => void;
+  onOpenLayers: () => void;
   onFitGroup: () => void;
-  onTogglePitch: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  is3D: boolean;
-  bearing: number;
-  onResetNorth: () => void;
 }
 
+const buttonBase =
+  'map-fab w-11 h-11 flex items-center justify-center transition-all active:scale-90 select-none';
+
 export const MapControls: React.FC<MapControlsProps> = ({
-  cameraMode,
-  onRecenter,
+  bearing,
+  showCompass,
+  isHeadingUp,
+  isFitGroup,
+  onCompass,
+  onOpenLayers,
   onFitGroup,
-  onTogglePitch,
   onZoomIn,
   onZoomOut,
-  is3D,
-  bearing,
-  onResetNorth,
 }) => {
   return (
-    <div className="flex flex-col gap-1.5 sm:gap-2 pointer-events-auto">
-      {/* Compass / Reset North */}
-      {Math.abs(bearing) > 2 && (
-        <button
-          onClick={onResetNorth}
-          title="Reset North"
-          className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl glass-panel flex items-center justify-center text-slate-200 hover:text-white hover:border-brand-500/50 transition-all active:scale-95 shadow-xl"
-        >
-          <Compass
-            className="w-4 h-4 sm:w-5 sm:h-5 text-brand-400 transition-transform duration-200"
-            style={{ transform: `rotate(${-bearing}deg)` }}
-          />
-        </button>
-      )}
-
-      {/* Recenter Follow Me */}
+    <div className="flex flex-col items-end gap-2 pointer-events-auto">
+      {/* Compass: shows north; tap toggles heading-up ↔ north-up while navigating */}
       <button
-        onClick={onRecenter}
-        title="Follow My Location"
-        className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl glass-panel flex items-center justify-center transition-all active:scale-95 shadow-xl ${
-          cameraMode === 'FOLLOW_ME'
-            ? 'border-brand-500 bg-brand-500/20 text-brand-400'
-            : 'text-slate-200 hover:text-white hover:border-slate-600'
-        }`}
+        type="button"
+        onClick={onCompass}
+        aria-label={isHeadingUp ? 'Switch to north-up' : 'Reset to north'}
+        title={isHeadingUp ? 'Heading-up — tap for north-up' : 'Reset to north'}
+        className={cn(
+          buttonBase,
+          'rounded-full transition-[opacity,transform] duration-300',
+          showCompass ? 'opacity-100' : 'opacity-0 pointer-events-none scale-75'
+        )}
       >
-        <Crosshair className="w-4 h-4 sm:w-5 sm:h-5" />
+        <svg viewBox="0 0 24 24" className="w-6 h-6" style={{ transform: `rotate(${-bearing}deg)` }} aria-hidden="true">
+          <path d="M12 2.5 15.2 12H8.8Z" fill="#ef4444" />
+          <path d="M12 21.5 8.8 12h6.4Z" className="fill-slate-300" />
+          <circle cx="12" cy="12" r="1.6" className="fill-slate-900" />
+        </svg>
       </button>
 
-      {/* Fit Group */}
+      <button type="button" onClick={onOpenLayers} aria-label="Map type and layers" title="Map type & layers" className={cn(buttonBase, 'rounded-2xl')}>
+        <Layers className="w-5 h-5" />
+      </button>
+
       <button
+        type="button"
         onClick={onFitGroup}
-        title="Fit All Riders"
-        className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl glass-panel flex items-center justify-center transition-all active:scale-95 shadow-xl ${
-          cameraMode === 'FIT_GROUP'
-            ? 'border-brand-500 bg-brand-500/20 text-brand-400'
-            : 'text-slate-200 hover:text-white hover:border-slate-600'
-        }`}
+        aria-label="Show all riders"
+        title="Show all riders"
+        className={cn(buttonBase, 'rounded-2xl', isFitGroup && 'map-fab--active')}
       >
-        <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+        <Users className="w-5 h-5" />
       </button>
 
-      {/* 2D / 3D Perspective Toggle */}
-      <button
-        onClick={onTogglePitch}
-        title="Toggle 3D View"
-        className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl glass-panel flex items-center justify-center transition-all active:scale-95 shadow-xl ${
-          is3D
-            ? 'border-brand-500 bg-brand-500/20 text-brand-400 font-bold text-xs'
-            : 'text-slate-200 hover:text-white hover:border-slate-600 font-medium text-xs'
-        }`}
-      >
-        <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
-      </button>
-
-      {/* Zoom In/Out */}
-      <div className="flex flex-col rounded-xl sm:rounded-2xl glass-panel overflow-hidden border border-white/10 shadow-xl">
+      <div className="map-fab flex flex-col rounded-2xl overflow-hidden">
         <button
+          type="button"
           onClick={onZoomIn}
-          title="Zoom In"
-          className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/60 active:bg-slate-700/60 transition-colors border-b border-slate-700/40"
+          aria-label="Zoom in"
+          className="w-11 h-11 flex items-center justify-center active:bg-white/10 transition-colors border-b border-white/10"
         >
-          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <Plus className="w-5 h-5" />
         </button>
         <button
+          type="button"
           onClick={onZoomOut}
-          title="Zoom Out"
-          className="w-9 h-8 sm:w-11 sm:h-10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/60 active:bg-slate-700/60 transition-colors"
+          aria-label="Zoom out"
+          className="w-11 h-11 flex items-center justify-center active:bg-white/10 transition-colors"
         >
-          <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <Minus className="w-5 h-5" />
         </button>
       </div>
     </div>

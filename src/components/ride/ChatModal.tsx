@@ -88,12 +88,12 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-md transition-opacity duration-300"
+        className="fixed inset-0 bg-black/75 backdrop-blur-md lr-anim-fade"
         onClick={onClose}
       />
 
       {/* Sheet / Modal Container */}
-      <div className="relative w-full max-w-lg h-[90dvh] sm:h-[620px] max-h-[100dvh] bg-slate-900/95 border-t sm:border border-slate-700/80 rounded-t-[28px] sm:rounded-3xl shadow-2xl overflow-hidden z-10 flex flex-col animate-in fade-in slide-in-from-bottom-8 sm:zoom-in-95 duration-200">
+      <div className="relative w-full max-w-lg h-[90dvh] sm:h-[620px] max-h-[100dvh] bg-slate-900/95 border-t sm:border border-slate-700/80 rounded-t-[28px] sm:rounded-3xl shadow-2xl overflow-hidden z-10 flex flex-col lr-anim-sheet">
         
         {/* Mobile Swipe / Grab Handle */}
         <div 
@@ -121,7 +121,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 flex items-center justify-center transition-colors active:scale-90 shrink-0"
+            className="w-11 h-11 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 flex items-center justify-center transition-colors active:scale-90 shrink-0"
             aria-label="Close Chat"
           >
             <X className="w-5 h-5" />
@@ -141,7 +141,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
                 <button
                   key={idx}
                   onClick={() => handleQuickAlert(alert.text)}
-                  className={`px-3 py-2 sm:py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap active:scale-95 transition-all shrink-0 shadow-sm ${alert.color}`}
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl border text-sm font-semibold flex items-center gap-1.5 whitespace-nowrap active:scale-95 transition-all shrink-0 shadow-sm ${alert.color}`}
                 >
                   <IconComponent className="w-3.5 h-3.5 shrink-0" />
                   <span>{alert.label}</span>
@@ -170,7 +170,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
               return (
                 <div
                   key={msg.id}
-                  className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} animate-in fade-in duration-150`}
+                  className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} lr-anim-fade`}
                 >
                   <div className={`flex items-end gap-2 max-w-[90%] sm:max-w-[85%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
                     {!isOwn && (

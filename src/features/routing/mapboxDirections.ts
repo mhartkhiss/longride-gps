@@ -7,11 +7,20 @@ export interface RouteGeometry {
   coordinates: [number, number][]; // [lng, lat][]
 }
 
+export interface RouteManeuver {
+  /** e.g. turn, depart, arrive, merge, fork, roundabout, end of road */
+  type: string;
+  /** e.g. left, slight right, uturn, straight */
+  modifier?: string;
+  location: [number, number];
+}
+
 export interface RouteStep {
   instruction: string;
   distance: number;
   duration: number;
   name: string;
+  maneuver?: RouteManeuver;
 }
 
 export interface RouteResult {
@@ -19,6 +28,43 @@ export interface RouteResult {
   distanceMeters: number;
   durationSeconds: number;
   steps: RouteStep[];
+  /** Where the rider actually wants to go (may be off the road network). */
+  destination: [number, number];
+  /** Where the road network ends closest to the destination. */
+  routeEnd: [number, number];
+}
+
+function profileFor(vehicleMode: VehicleMode): string {
+  if (vehicleMode === 'cycling') return 'cycling';
+  if (vehicleMode === 'walking') return 'walking';
+  // Live traffic gives realistic ETAs in city traffic
+  return 'driving-traffic';
+}
+
+function straightLine(
+  startLng: number,
+  startLat: number,
+  endLng: number,
+  endLat: number,
+  speedMps: number,
+  label: string
+): RouteResult {
+  const distance = calculateDistanceMeters(startLat, startLng, endLat, endLng);
+  const duration = Math.round(distance / speedMps);
+  return {
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [startLng, startLat],
+        [endLng, endLat],
+      ],
+    },
+    distanceMeters: distance,
+    durationSeconds: duration,
+    steps: [{ instruction: 'Head towards destination', distance, duration, name: label }],
+    destination: [endLng, endLat],
+    routeEnd: [endLng, endLat],
+  };
 }
 
 export class MapboxDirectionsService {
@@ -32,40 +78,22 @@ export class MapboxDirectionsService {
     endLat: number,
     vehicleMode: VehicleMode = 'driving'
   ): Promise<RouteResult | null> {
-    const profile =
-      vehicleMode === 'cycling'
-        ? 'cycling'
-        : vehicleMode === 'walking'
-        ? 'walking'
-        : 'driving';
+    const fallbackSpeed = vehicleMode === 'cycling' ? 5.5 : vehicleMode === 'walking' ? 1.4 : 12.0;
 
     // If no valid Mapbox token is configured, return straight-line navigation fallback
     if (!hasValidMapboxConfig) {
-      const distance = calculateDistanceMeters(startLat, startLng, endLat, endLng);
-      const estimatedSpeedMps = vehicleMode === 'cycling' ? 5.5 : vehicleMode === 'walking' ? 1.4 : 14.0;
-      return {
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [startLng, startLat],
-            [endLng, endLat],
-          ],
-        },
-        distanceMeters: distance,
-        durationSeconds: Math.round(distance / estimatedSpeedMps),
-        steps: [
-          {
-            instruction: 'Head towards destination',
-            distance,
-            duration: Math.round(distance / estimatedSpeedMps),
-            name: 'Direct Path',
-          },
-        ],
-      };
+      return straightLine(startLng, startLat, endLng, endLat, fallbackSpeed, 'Direct Path');
     }
 
     try {
-      const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${startLng},${startLat};${endLng},${endLat}?geometries=geojson&overview=full&steps=true&access_token=${env.mapboxToken}`;
+      const params = new URLSearchParams({
+        geometries: 'geojson',
+        overview: 'full',
+        steps: 'true',
+        language: 'en',
+        access_token: env.mapboxToken,
+      });
+      const url = `https://api.mapbox.com/directions/v5/mapbox/${profileFor(vehicleMode)}/${startLng},${startLat};${endLng},${endLat}?${params}`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Directions API responded with status ${response.status}`);
@@ -79,75 +107,38 @@ export class MapboxDirectionsService {
       const route = data.routes[0];
       const steps: RouteStep[] = [];
 
-      if (route.legs && route.legs[0] && route.legs[0].steps) {
-        for (const step of route.legs[0].steps) {
+      for (const leg of route.legs || []) {
+        for (const step of leg.steps || []) {
           steps.push({
             instruction: step.maneuver?.instruction || step.name || 'Proceed',
             distance: step.distance,
             duration: step.duration,
             name: step.name || '',
+            maneuver: step.maneuver
+              ? {
+                  type: step.maneuver.type,
+                  modifier: step.maneuver.modifier,
+                  location: step.maneuver.location,
+                }
+              : undefined,
           });
         }
       }
+
+      const coords: [number, number][] = route.geometry.coordinates;
+      const lastWaypoint = data.waypoints?.[data.waypoints.length - 1]?.location as [number, number] | undefined;
 
       return {
         geometry: route.geometry,
         distanceMeters: route.distance,
         durationSeconds: route.duration,
         steps,
+        destination: [endLng, endLat],
+        routeEnd: lastWaypoint || coords[coords.length - 1],
       };
     } catch (err) {
       console.warn('Failed to fetch Mapbox route, falling back to direct line:', err);
-      const distance = calculateDistanceMeters(startLat, startLng, endLat, endLng);
-      return {
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [startLng, startLat],
-            [endLng, endLat],
-          ],
-        },
-        distanceMeters: distance,
-        durationSeconds: Math.round(distance / 12),
-        steps: [
-          {
-            instruction: 'Navigate towards destination',
-            distance,
-            duration: Math.round(distance / 12),
-            name: 'Direct Route',
-          },
-        ],
-      };
-    }
-  }
-
-  /**
-   * Geocodes query string to find matching places/addresses
-   */
-  static async searchPlaces(query: string, proximityLng?: number, proximityLat?: number) {
-    if (!query.trim() || !hasValidMapboxConfig) return [];
-
-    try {
-      let url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-        query.trim()
-      )}.json?access_token=${env.mapboxToken}&limit=5`;
-
-      if (proximityLng !== undefined && proximityLat !== undefined) {
-        url += `&proximity=${proximityLng},${proximityLat}`;
-      }
-
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return (data.features || []).map((f: { place_name: string; center: [number, number]; id: string }) => ({
-        id: f.id,
-        name: f.place_name,
-        lng: f.center[0],
-        lat: f.center[1],
-      }));
-    } catch (err) {
-      console.warn('Geocoding search failed:', err);
-      return [];
+      return straightLine(startLng, startLat, endLng, endLat, fallbackSpeed, 'Direct Route');
     }
   }
 }

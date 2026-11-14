@@ -1,107 +1,74 @@
 import { useEffect } from 'react';
-import type { Map, GeoJSONSource } from 'mapbox-gl';
+import type { Map as MapboxMap } from 'mapbox-gl';
 import { RouteResult } from '@/features/routing/mapboxDirections';
+import { SOURCE, setRouteProgress, setSourceData } from '@/features/map/layers';
+import { distanceMeters } from '@/lib/geo';
 
 interface RouteLayerProps {
-  map: Map | null;
-  destination?: unknown;
+  map: MapboxMap | null;
   route: RouteResult | null;
+  /** 0..1 of the route already ridden — that part is trimmed off the line. */
+  progressFraction: number;
 }
 
-const ROUTE_SOURCE_ID = 'shared-route-source';
-const ROUTE_LAYER_ID = 'shared-route-line';
-const ROUTE_CASING_ID = 'shared-route-casing';
+/** Shows a dotted "last stretch" when the road network ends short of the pin. */
+const CONNECTOR_MIN_METERS = 12;
 
-export const RouteLayer: React.FC<RouteLayerProps> = ({ map, route }) => {
-  // Shared Route Line (GeoJSON)
+export const RouteLayer: React.FC<RouteLayerProps> = ({ map, route, progressFraction }) => {
   useEffect(() => {
     if (!map) return;
 
-    const sourceData: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
-      type: 'FeatureCollection',
-      features: route
-        ? [
-            {
+    const draw = () => {
+      try {
+        setSourceData(map, SOURCE.route, {
+          type: 'FeatureCollection',
+          features: route ? [{ type: 'Feature', properties: {}, geometry: route.geometry }] : [],
+        });
+
+        const extras: GeoJSON.Feature[] = [];
+        if (route) {
+          const [endLng, endLat] = route.routeEnd;
+          const [destLng, destLat] = route.destination;
+          if (distanceMeters(endLat, endLng, destLat, destLng) > CONNECTOR_MIN_METERS) {
+            extras.push({
               type: 'Feature',
               properties: {},
-              geometry: route.geometry,
-            },
-          ]
-        : [],
-    };
-
-    const updateOrAddLayer = () => {
-      try {
-        if (!map || !map.getStyle()) return;
-        const existingSource = map.getSource(ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
-
-        if (existingSource) {
-          existingSource.setData(sourceData);
-        } else {
-          map.addSource(ROUTE_SOURCE_ID, {
-            type: 'geojson',
-            data: sourceData,
-          });
-
-          // Casing / Glow layer under the line
-          map.addLayer({
-            id: ROUTE_CASING_ID,
-            type: 'line',
-            source: ROUTE_SOURCE_ID,
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round',
-            },
-            paint: {
-              'line-color': '#064e3b',
-              'line-width': 8,
-              'line-opacity': 0.8,
-            },
-          });
-
-          // Main luminous route line
-          map.addLayer({
-            id: ROUTE_LAYER_ID,
-            type: 'line',
-            source: ROUTE_SOURCE_ID,
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round',
-            },
-            paint: {
-              'line-color': '#10b981',
-              'line-width': 5,
-              'line-opacity': 0.95,
-            },
-          });
+              geometry: { type: 'LineString', coordinates: [route.routeEnd, route.destination] },
+            });
+          }
+          extras.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: route.destination } });
         }
+        setSourceData(map, SOURCE.routeExtras, { type: 'FeatureCollection', features: extras });
       } catch {
-        // Map style already disposed or in transition
+        // Style reloading
       }
     };
 
-    try {
-      if (map.isStyleLoaded()) {
-        updateOrAddLayer();
-      } else {
-        map.once('style.load', updateOrAddLayer);
-      }
-    } catch {
-      // Ignore
-    }
+    draw();
+    map.on('style.load', draw);
+    return () => {
+      map.off('style.load', draw);
+    };
   }, [map, route]);
 
-  // Cleanup on unmount
+  useEffect(() => {
+    if (!map) return;
+    try {
+      setRouteProgress(map, route ? progressFraction : 0);
+    } catch {
+      // Style reloading
+    }
+  }, [map, route, progressFraction]);
+
+  // Clear on unmount
   useEffect(() => {
     return () => {
+      if (!map) return;
       try {
-        if (map && map.getStyle()) {
-          if (map.getLayer(ROUTE_LAYER_ID)) map.removeLayer(ROUTE_LAYER_ID);
-          if (map.getLayer(ROUTE_CASING_ID)) map.removeLayer(ROUTE_CASING_ID);
-          if (map.getSource(ROUTE_SOURCE_ID)) map.removeSource(ROUTE_SOURCE_ID);
-        }
+        setSourceData(map, SOURCE.route, { type: 'FeatureCollection', features: [] });
+        setSourceData(map, SOURCE.routeExtras, { type: 'FeatureCollection', features: [] });
       } catch {
-        // Map instance already removed by parent component
+        // Map already removed
       }
     };
   }, [map]);

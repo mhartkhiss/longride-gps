@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Destination, Ride, RideParticipant } from '@/types/database';
 import { RouteResult } from '@/features/routing/mapboxDirections';
+import { RouteProgress } from '@/features/routing/routeProgress';
 
 interface RideState {
   currentRide: Ride | null;
@@ -8,6 +9,8 @@ interface RideState {
   isHost: boolean;
   destination: Destination | null;
   route: RouteResult | null;
+  /** Live progress along `route`, recomputed on every GPS fix. */
+  routeProgress: RouteProgress | null;
   realtimeStatus: 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
   onlineUserIds: string[];
   isLoading: boolean;
@@ -20,6 +23,7 @@ interface RideState {
   removeParticipant: (userId: string) => void;
   setDestination: (destination: Destination | null) => void;
   setRoute: (route: RouteResult | null) => void;
+  setRouteProgress: (progress: RouteProgress | null) => void;
   setRealtimeStatus: (status: 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR') => void;
   setOnlineUserIds: (userIds: string[]) => void;
   addOnlineUserId: (userId: string) => void;
@@ -35,6 +39,7 @@ export const useRideStore = create<RideState>((set) => ({
   isHost: false,
   destination: null,
   route: null,
+  routeProgress: null,
   realtimeStatus: 'DISCONNECTED',
   onlineUserIds: [],
   isLoading: false,
@@ -82,7 +87,9 @@ export const useRideStore = create<RideState>((set) => ({
 
   setDestination: (destination) => set({ destination }),
 
-  setRoute: (route) => set({ route }),
+  setRoute: (route) => set(route ? { route } : { route: null, routeProgress: null }),
+
+  setRouteProgress: (routeProgress) => set({ routeProgress }),
 
   setRealtimeStatus: (realtimeStatus) => set({ realtimeStatus }),
 
@@ -111,6 +118,7 @@ export const useRideStore = create<RideState>((set) => ({
       isHost: false,
       destination: null,
       route: null,
+      routeProgress: null,
       realtimeStatus: 'DISCONNECTED',
       onlineUserIds: [],
       isLoading: false,

@@ -1,183 +1,175 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Crosshair, Gauge, MapPin, Navigation, Radio, UserCheck, X } from 'lucide-react';
 import { useMapStore } from '@/stores/mapStore';
 import { useRideStore } from '@/stores/rideStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { X, Navigation, Crosshair, Gauge, Radio, UserCheck } from 'lucide-react';
-import { calculateDistanceMeters, formatDistance, formatSpeed, getRiderColor } from '@/lib/utils';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
+import {
+  calculateDistanceMeters,
+  cn,
+  formatDistance,
+  formatTimeAgo,
+  getRiderColor,
+  haptic,
+  speedToKmh,
+} from '@/lib/utils';
+import { formatBarangay, PlaceInfo, reverseGeocode } from '@/features/geocoding/geocoding';
 
 interface RiderDetailCardProps {
   onFocusRider?: (lng: number, lat: number) => void;
 }
 
+const STALE_MS = 30000;
+
 export const RiderDetailCard: React.FC<RiderDetailCardProps> = ({ onFocusRider }) => {
-  const {
-    selectedUserId,
-    followingUserId,
-    riderLocations,
-    userLocation,
-    setSelectedUserId,
-    setFollowingUserId,
-    clearFollowing,
-  } = useMapStore();
+  const selectedUserId = useMapStore((s) => s.selectedUserId);
+  const followingUserId = useMapStore((s) => s.followingUserId);
+  const riderLocations = useMapStore((s) => s.riderLocations);
+  const userLocation = useMapStore((s) => s.userLocation);
+  const setSelectedUserId = useMapStore((s) => s.setSelectedUserId);
+  const setFollowingUserId = useMapStore((s) => s.setFollowingUserId);
+  const clearFollowing = useMapStore((s) => s.clearFollowing);
+  const participants = useRideStore((s) => s.participants);
+  const onlineUserIds = useRideStore((s) => s.onlineUserIds);
+  const user = useSessionStore((s) => s.user);
 
-  const { participants, onlineUserIds } = useRideStore();
-  const { user } = useSessionStore();
+  const loc = selectedUserId ? riderLocations[selectedUserId] : undefined;
+  const [place, setPlace] = useState<PlaceInfo | null>(null);
 
-  // Only display when a rider is selected and is not the current user
+  // Barangay-level "where are they" — looked up again each time they move ~100 m
+  const locKey = loc ? `${loc.lng.toFixed(3)},${loc.lat.toFixed(3)}` : null;
+  useEffect(() => {
+    if (!selectedUserId) return;
+    setPlace(null);
+  }, [selectedUserId]);
+  useEffect(() => {
+    if (!locKey || !loc) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      reverseGeocode(loc.lng, loc.lat, controller.signal)
+        .then((p) => setPlace(p))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [locKey]);
+
   if (!selectedUserId || selectedUserId === user?.id) return null;
 
-  const loc = riderLocations[selectedUserId];
   const participant = participants.find((p) => p.user_id === selectedUserId);
   const isOnline = onlineUserIds.includes(selectedUserId);
   const isFollowing = followingUserId === selectedUserId;
-
+  const isStale = !!loc && Date.now() - loc.timestamp > STALE_MS;
   const displayName = loc?.displayName || participant?.display_name || 'Rider';
+  const avatarUrl = loc?.avatarUrl || participant?.avatar_url || null;
   const color = getRiderColor(selectedUserId);
   const vehicleType = loc?.vehicleType || participant?.vehicle_type || 'motorcycle';
-
-  // Calculate distance from current user
-  let distanceStr: string | null = null;
-  if (userLocation && loc) {
-    const distMeters = calculateDistanceMeters(
-      userLocation.lat,
-      userLocation.lng,
-      loc.lat,
-      loc.lng
-    );
-    distanceStr = `${formatDistance(distMeters)} away`;
-  }
+  const distance =
+    userLocation && loc ? calculateDistanceMeters(userLocation.lat, userLocation.lng, loc.lat, loc.lng) : null;
+  const area = place
+    ? [place.street, formatBarangay(place.barangay, place.countryCode), place.city].filter(Boolean).join(', ')
+    : null;
 
   const handleToggleFollow = () => {
-    if (isFollowing) {
-      clearFollowing();
-    } else {
-      setFollowingUserId(selectedUserId);
-      if (loc && onFocusRider) {
-        onFocusRider(loc.lng, loc.lat);
-      }
-    }
-  };
-
-  const handleLocate = () => {
-    if (loc && onFocusRider) {
-      onFocusRider(loc.lng, loc.lat);
-    }
-  };
-
-  const handleClose = () => {
-    setSelectedUserId(null);
+    haptic(30);
+    if (isFollowing) clearFollowing();
+    else setFollowingUserId(selectedUserId);
   };
 
   return (
-    <div className="glass-panel p-3.5 sm:p-4 rounded-2xl border-white/10 shadow-2xl space-y-3 pointer-events-auto max-w-sm w-full animate-in fade-in slide-in-from-top-4 duration-200">
-      {/* Header: Avatar, Name, Status, Close */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shadow-lg border-2 border-white/80 shrink-0"
-            style={{ backgroundColor: color }}
-          >
-            {displayName.charAt(0).toUpperCase()}
+    <div className="glass-panel bg-slate-900/90 p-3.5 rounded-3xl border-white/10 shadow-2xl space-y-3 pointer-events-auto w-full lr-anim-drop">
+      <div className="flex items-start gap-3">
+        <div
+          className="relative w-12 h-12 rounded-full border-[3px] border-white/90 flex items-center justify-center text-white font-black text-lg shrink-0 overflow-hidden shadow-lg"
+          style={{ backgroundColor: color }}
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            displayName.charAt(0).toUpperCase()
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h4 className="text-base font-extrabold text-white truncate">{displayName}</h4>
+            {participant?.is_host && <span title="Host" className="text-sm shrink-0">👑</span>}
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <h4 className="text-sm font-bold text-white tracking-tight truncate">
-                {displayName}
-              </h4>
-              {participant?.is_host && (
-                <span title="Host" className="text-xs shrink-0">👑</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <Badge variant="slate" size="sm" className="capitalize text-[10px] px-1.5 py-0.2">
-                {vehicleType}
-              </Badge>
-              {isOnline ? (
-                <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Live
-                </span>
-              ) : (
-                <span className="text-slate-500 text-[10px]">Offline</span>
-              )}
-            </div>
+          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+            <span className="capitalize px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 font-semibold">{vehicleType}</span>
+            {!isOnline ? (
+              <span className="text-slate-500">Offline</span>
+            ) : isStale && loc ? (
+              <span className="text-amber-400 font-semibold">Signal lost · {formatTimeAgo(loc.timestamp)}</span>
+            ) : (
+              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live
+              </span>
+            )}
           </div>
         </div>
-
         <button
-          onClick={handleClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          title="Close"
+          type="button"
+          onClick={() => setSelectedUserId(null)}
+          aria-label="Close"
+          className="w-11 h-11 -mr-1.5 -mt-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center transition-colors"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Metrics Row: Speed & Distance */}
-      <div className="grid grid-cols-2 gap-2 bg-slate-900/60 rounded-xl p-2.5 border border-white/5">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
-            <Gauge className="w-4 h-4" />
-          </div>
+      <div className="flex items-start gap-2 rounded-2xl bg-slate-950/50 border border-white/5 px-3 py-2">
+        <MapPin className="w-4 h-4 text-brand-300 mt-0.5 shrink-0" />
+        <p className="text-xs text-slate-200 leading-snug min-w-0">
+          {loc ? area || 'Looking up area…' : 'No location shared yet'}
+          {loc && loc.accuracy > 25 && (
+            <span className="text-amber-300/90"> · ±{Math.round(loc.accuracy)} m</span>
+          )}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-slate-950/50 border border-white/5 px-3 py-2 flex items-center gap-2">
+          <Gauge className="w-4 h-4 text-cyan-300 shrink-0" />
           <div>
-            <p className="text-[10px] text-slate-400 uppercase font-semibold">Speed</p>
-            <p className="text-xs font-bold text-white">
-              {loc ? formatSpeed(loc.speed) : '0 km/h'}
-            </p>
+            <p className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Speed</p>
+            <p className="text-sm font-extrabold text-white tabular-nums">{loc ? `${speedToKmh(loc.speed)} km/h` : '—'}</p>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
-            <Radio className="w-4 h-4" />
-          </div>
+        <div className="rounded-2xl bg-slate-950/50 border border-white/5 px-3 py-2 flex items-center gap-2">
+          <Radio className="w-4 h-4 text-purple-300 shrink-0" />
           <div>
-            <p className="text-[10px] text-slate-400 uppercase font-semibold">Distance</p>
-            <p className="text-xs font-bold text-white">
-              {distanceStr || 'Locating...'}
-            </p>
+            <p className="text-[10px] uppercase font-bold tracking-wider text-slate-500">From you</p>
+            <p className="text-sm font-extrabold text-white tabular-nums">{distance !== null ? formatDistance(distance) : '—'}</p>
           </div>
         </div>
       </div>
 
-      {/* Action Buttons: Follow on Map & Locate */}
-      <div className="flex items-center gap-2 pt-0.5">
-        <Button
-          size="sm"
-          variant={isFollowing ? 'primary' : 'glass'}
+      <div className="flex gap-2">
+        <button
+          type="button"
           onClick={handleToggleFollow}
-          className={`flex-1 font-bold text-xs h-9 ${
-            isFollowing
-              ? 'bg-brand-500 text-slate-950 shadow-brand-500/20 shadow-lg'
-              : 'border-brand-500/40 text-brand-300 hover:text-white'
-          }`}
-        >
-          {isFollowing ? (
-            <>
-              <UserCheck className="w-3.5 h-3.5 mr-1.5" />
-              <span>Following Live</span>
-            </>
-          ) : (
-            <>
-              <Navigation className="w-3.5 h-3.5 mr-1.5" />
-              <span>Follow Rider</span>
-            </>
+          disabled={!loc}
+          className={cn(
+            'flex-1 h-12 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-40',
+            isFollowing ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'bg-brand-500 text-slate-950 shadow-lg shadow-brand-500/20'
           )}
-        </Button>
-
+        >
+          {isFollowing ? <UserCheck className="w-4 h-4" /> : <Navigation className="w-4 h-4" />}
+          {isFollowing ? 'Following' : 'Follow & route'}
+        </button>
         {loc && (
-          <Button
-            size="sm"
-            variant="glass"
-            onClick={handleLocate}
-            className="h-9 px-3"
-            title="Pan camera to rider"
+          <button
+            type="button"
+            onClick={() => {
+              haptic(15);
+              onFocusRider?.(loc.lng, loc.lat);
+            }}
+            aria-label="Show on map"
+            className="w-12 h-12 rounded-2xl bg-slate-800/90 border border-white/10 text-slate-200 flex items-center justify-center active:scale-95 transition-transform"
           >
-            <Crosshair className="w-3.5 h-3.5 text-slate-300" />
-            <span className="hidden sm:inline ml-1 text-xs">Locate</span>
-          </Button>
+            <Crosshair className="w-5 h-5" />
+          </button>
         )}
       </div>
     </div>

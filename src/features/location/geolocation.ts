@@ -3,6 +3,31 @@ import { GpsLocation, LocationPermissionState } from './locationTypes';
 export type LocationCallback = (location: GpsLocation) => void;
 export type ErrorCallback = (error: GeolocationPositionError) => void;
 
+/**
+ * Always ask the GNSS chip for a fresh, high-accuracy fix. Cached fixes
+ * (maximumAge > 0) lag behind a moving rider, and a generous timeout lets the
+ * receiver re-acquire under tree cover or between houses in dense barangays.
+ */
+const WATCH_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  maximumAge: 0,
+  timeout: 20000,
+};
+
+/** Normalises a browser fix: heading/speed come back as NaN or negative on many devices. */
+export function toGpsLocation(pos: GeolocationPosition): GpsLocation {
+  const { latitude, longitude, accuracy, heading, speed, altitude } = pos.coords;
+  return {
+    lat: latitude,
+    lng: longitude,
+    accuracy: Number.isFinite(accuracy) && accuracy > 0 ? accuracy : 999,
+    heading: heading !== null && Number.isFinite(heading) && heading >= 0 ? heading % 360 : null,
+    speed: speed !== null && Number.isFinite(speed) && speed >= 0 ? speed : null,
+    altitude: altitude !== null && Number.isFinite(altitude) ? altitude : null,
+    timestamp: pos.timestamp || Date.now(),
+  };
+}
+
 export class GeolocationService {
   private static watchId: number | null = null;
 
@@ -32,31 +57,14 @@ export class GeolocationService {
       }
 
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          resolve({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-            heading: pos.coords.heading,
-            speed: pos.coords.speed,
-            altitude: pos.coords.altitude,
-            timestamp: pos.timestamp || Date.now(),
-          });
-        },
+        (pos) => resolve(toGpsLocation(pos)),
         (err) => reject(err),
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 1000,
-        }
+        { ...WATCH_OPTIONS, timeout: 15000 }
       );
     });
   }
 
-  static startWatching(
-    onLocation: LocationCallback,
-    onError?: ErrorCallback
-  ): number | null {
+  static startWatching(onLocation: LocationCallback, onError?: ErrorCallback): number | null {
     if (!this.isSupported()) {
       onError?.({
         code: 2,
@@ -71,26 +79,12 @@ export class GeolocationService {
     this.stopWatching();
 
     this.watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        onLocation({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-          altitude: pos.coords.altitude,
-          timestamp: pos.timestamp || Date.now(),
-        });
-      },
+      (pos) => onLocation(toGpsLocation(pos)),
       (err) => {
         console.warn('Geolocation watch error:', err.message);
         onError?.(err);
       },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 10000,
-      }
+      WATCH_OPTIONS
     );
 
     return this.watchId;

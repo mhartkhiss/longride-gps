@@ -1,9 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
-import type { Map as MapboxMap, GeoJSONSource } from 'mapbox-gl';
+import { useEffect, useRef, useState } from 'react';
+import type { Map as MapboxMap } from 'mapbox-gl';
 import { GpsLocation } from '@/features/location/locationTypes';
 import { LocationBroadcastPayload } from '@/types/realtime';
 import { MapboxDirectionsService, RouteResult } from '@/features/routing/mapboxDirections';
 import { VehicleMode } from '@/types/database';
+import { SOURCE, setSourceData } from '@/features/map/layers';
+import { distanceMeters } from '@/lib/geo';
 
 interface FollowRouteLayerProps {
   map: MapboxMap | null;
@@ -13,9 +15,9 @@ interface FollowRouteLayerProps {
   vehicleMode?: VehicleMode;
 }
 
-const FOLLOW_ROUTE_SOURCE_ID = 'follow-route-source';
-const FOLLOW_ROUTE_LAYER_ID = 'follow-route-line';
-const FOLLOW_ROUTE_CASING_ID = 'follow-route-casing';
+/** Re-plan the path to a followed rider only when someone has really moved. */
+const MIN_INTERVAL_MS = 15000;
+const MOVE_THRESHOLD_METERS = 60;
 
 export const FollowRouteLayer: React.FC<FollowRouteLayerProps> = ({
   map,
@@ -25,154 +27,71 @@ export const FollowRouteLayer: React.FC<FollowRouteLayerProps> = ({
   vehicleMode = 'driving',
 }) => {
   const [followRoute, setFollowRoute] = useState<RouteResult | null>(null);
-  const lastCalculationRef = useRef<{ userLng: number; userLat: number; targetLng: number; targetLat: number } | null>(null);
+  const lastCalcRef = useRef<{ at: number; user: [number, number]; target: [number, number]; id: string } | null>(null);
+  const inFlightRef = useRef(false);
+  // Latest followed id, so a late response for a previous target is dropped
+  const followIdRef = useRef(followingUserId);
+  followIdRef.current = followingUserId;
 
-  // Recalculate route to followed rider when coordinates change
+  const target = followingUserId ? riderLocations[followingUserId] : undefined;
+
   useEffect(() => {
-    if (!followingUserId || !userLocation) {
-      setFollowRoute(null);
-      lastCalculationRef.current = null;
+    if (!followingUserId || !userLocation || !target) {
+      if (!followingUserId) {
+        setFollowRoute(null);
+        lastCalcRef.current = null;
+      }
       return;
     }
 
-    const targetLoc = riderLocations[followingUserId];
-    if (!targetLoc) return;
-
-    // Check if movement is significant enough to warrant re-routing (> 10 meters)
-    const last = lastCalculationRef.current;
-    if (last) {
-      const movedUser = Math.hypot(userLocation.lng - last.userLng, userLocation.lat - last.userLat);
-      const movedTarget = Math.hypot(targetLoc.lng - last.targetLng, targetLoc.lat - last.targetLat);
-      if (movedUser < 0.0001 && movedTarget < 0.0001) {
+    const last = lastCalcRef.current;
+    if (last && last.id === followingUserId) {
+      const movedUser = distanceMeters(last.user[1], last.user[0], userLocation.lat, userLocation.lng);
+      const movedTarget = distanceMeters(last.target[1], last.target[0], target.lat, target.lng);
+      const elapsed = Date.now() - last.at;
+      if (elapsed < MIN_INTERVAL_MS || (movedUser < MOVE_THRESHOLD_METERS && movedTarget < MOVE_THRESHOLD_METERS)) {
         return;
       }
     }
+    if (inFlightRef.current) return;
 
-    let isCancelled = false;
-
-    const fetchPath = async () => {
-      try {
-        const res = await MapboxDirectionsService.getRoute(
-          userLocation.lng,
-          userLocation.lat,
-          targetLoc.lng,
-          targetLoc.lat,
-          vehicleMode
-        );
-        if (!isCancelled && res) {
-          setFollowRoute(res);
-          lastCalculationRef.current = {
-            userLng: userLocation.lng,
-            userLat: userLocation.lat,
-            targetLng: targetLoc.lng,
-            targetLat: targetLoc.lat,
-          };
-        }
-      } catch (err) {
-        console.warn('Failed to calculate path to followed rider:', err);
-      }
+    inFlightRef.current = true;
+    const id = followingUserId;
+    lastCalcRef.current = {
+      at: Date.now(),
+      user: [userLocation.lng, userLocation.lat],
+      target: [target.lng, target.lat],
+      id,
     };
 
-    fetchPath();
+    MapboxDirectionsService.getRoute(userLocation.lng, userLocation.lat, target.lng, target.lat, vehicleMode)
+      .then((res) => {
+        if (followIdRef.current === id) setFollowRoute(res);
+      })
+      .catch((err) => console.warn('Failed to calculate path to followed rider:', err))
+      .finally(() => {
+        inFlightRef.current = false;
+      });
+  }, [followingUserId, userLocation, target, vehicleMode]);
 
-    return () => {
-      isCancelled = true;
-    };
-  }, [followingUserId, userLocation, riderLocations, vehicleMode]);
-
-  // Render or Update Mapbox Layer
   useEffect(() => {
     if (!map) return;
-
-    const sourceData: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
-      type: 'FeatureCollection',
-      features: followRoute
-        ? [
-            {
-              type: 'Feature',
-              properties: {},
-              geometry: followRoute.geometry,
-            },
-          ]
-        : [],
-    };
-
-    const updateOrAddLayer = () => {
+    const draw = () => {
       try {
-        if (!map || !map.getStyle()) return;
-        const existingSource = map.getSource(FOLLOW_ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
-
-        if (existingSource) {
-          existingSource.setData(sourceData);
-        } else {
-          map.addSource(FOLLOW_ROUTE_SOURCE_ID, {
-            type: 'geojson',
-            data: sourceData,
-          });
-
-          // Casing glow layer
-          map.addLayer({
-            id: FOLLOW_ROUTE_CASING_ID,
-            type: 'line',
-            source: FOLLOW_ROUTE_SOURCE_ID,
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round',
-            },
-            paint: {
-              'line-color': '#4c1d95',
-              'line-width': 7,
-              'line-opacity': 0.7,
-            },
-          });
-
-          // Main dashed vibrant cyan/purple follow line
-          map.addLayer({
-            id: FOLLOW_ROUTE_LAYER_ID,
-            type: 'line',
-            source: FOLLOW_ROUTE_SOURCE_ID,
-            layout: {
-              'line-join': 'round',
-              'line-cap': 'round',
-            },
-            paint: {
-              'line-color': '#a855f7',
-              'line-width': 4,
-              'line-opacity': 0.95,
-              'line-dasharray': [2, 2],
-            },
-          });
-        }
+        setSourceData(map, SOURCE.follow, {
+          type: 'FeatureCollection',
+          features: followRoute && followingUserId ? [{ type: 'Feature', properties: {}, geometry: followRoute.geometry }] : [],
+        });
       } catch {
-        // Map style in transition
+        // Style reloading
       }
     };
-
-    try {
-      if (map.isStyleLoaded()) {
-        updateOrAddLayer();
-      } else {
-        map.once('style.load', updateOrAddLayer);
-      }
-    } catch {
-      // Ignore
-    }
-  }, [map, followRoute]);
-
-  // Clean up layer and source on unmount
-  useEffect(() => {
+    draw();
+    map.on('style.load', draw);
     return () => {
-      try {
-        if (map && map.getStyle()) {
-          if (map.getLayer(FOLLOW_ROUTE_LAYER_ID)) map.removeLayer(FOLLOW_ROUTE_LAYER_ID);
-          if (map.getLayer(FOLLOW_ROUTE_CASING_ID)) map.removeLayer(FOLLOW_ROUTE_CASING_ID);
-          if (map.getSource(FOLLOW_ROUTE_SOURCE_ID)) map.removeSource(FOLLOW_ROUTE_SOURCE_ID);
-        }
-      } catch {
-        // Ignore
-      }
+      map.off('style.load', draw);
     };
-  }, [map]);
+  }, [map, followRoute, followingUserId]);
 
   return null;
 };

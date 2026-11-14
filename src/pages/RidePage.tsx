@@ -1,65 +1,39 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, Flag, Loader2 } from 'lucide-react';
 import { useRideStore } from '@/stores/rideStore';
 import { useMapStore } from '@/stores/mapStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { RideService } from '@/features/rides/rideService';
 import { GeolocationService } from '@/features/location/geolocation';
+import { GpsFilter } from '@/features/location/gpsFilter';
 import { LocationThrottleFilter, sanitizeGpsPayload } from '@/features/location/locationThrottle';
+import { trailStore } from '@/features/location/trailStore';
+import { resetLiveTracks } from '@/features/map/liveState';
+import { usePlaceStore } from '@/features/geocoding/placeTracking';
 import { screenWakeLock } from '@/lib/wakeLock';
 import { RideRealtimeChannel } from '@/features/realtime/rideChannel';
-import { MapboxDirectionsService } from '@/features/routing/mapboxDirections';
-import { RideMap } from '@/components/map/RideMap';
-import { HostControls } from '@/components/ride/HostControls';
-import { RiderListDrawer } from '@/components/ride/RiderListDrawer';
-import { RiderDetailCard } from '@/components/ride/RiderDetailCard';
-import { LocationStatusBadge } from '@/components/ride/LocationStatusBadge';
-import { ChatModal } from '@/components/ride/ChatModal';
-import { ConfirmLeaveModal } from '@/components/ui/ConfirmLeaveModal';
-import { Loader2, ArrowLeft, AlertCircle, MessageSquare } from 'lucide-react';
+import { RideView } from '@/components/ride/RideView';
 import { Button } from '@/components/ui/Button';
 import { GpsLocation } from '@/features/location/locationTypes';
 import { Destination } from '@/types/database';
-import { ChatMessagePayload } from '@/types/realtime';
+import { ChatMessagePayload, LocationBroadcastPayload } from '@/types/realtime';
+
+interface RiderIdentity {
+  userId: string;
+  displayName: string;
+  vehicleType: string;
+  avatarUrl?: string;
+}
 
 export const RidePage: React.FC = () => {
   const { rideId } = useParams<{ rideId: string }>();
   const navigate = useNavigate();
 
-  const {
-    currentRide,
-    destination,
-    isHost,
-    setRide,
-    setParticipants,
-    addOrUpdateParticipant,
-    removeParticipant,
-    setDestination,
-    setRoute,
-    setRealtimeStatus,
-    setOnlineUserIds,
-    addOnlineUserId,
-    removeOnlineUserId,
-    resetRide,
-  } = useRideStore();
-
-  const {
-    userLocation,
-    riderLocations,
-    isSharingLocation,
-    followingUserId,
-    selectedUserId,
-    setUserLocation,
-    updateRiderLocation,
-    removeRiderLocation,
-    syncActiveRiders,
-    clearRiderLocations,
-    setCameraMode,
-    clearFollowing,
-    setSelectedUserId,
-  } = useMapStore();
-
-  const { user, displayName, avatarUrl, vehicleType, initSession } = useSessionStore();
+  const currentRide = useRideStore((s) => s.currentRide);
+  const isHost = useRideStore((s) => s.isHost);
+  const isSharingLocation = useMapStore((s) => s.isSharingLocation);
+  const initSession = useSessionStore((s) => s.initSession);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,53 +41,44 @@ export const RidePage: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessagePayload[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [endedNotice, setEndedNotice] = useState<string | null>(null);
 
   const realtimeChannelRef = useRef<RideRealtimeChannel | null>(null);
-  const throttleFilterRef = useRef<LocationThrottleFilter>(new LocationThrottleFilter());
+  const throttleFilterRef = useRef(new LocationThrottleFilter());
+  const gpsFilterRef = useRef(new GpsFilter());
   const userLocationRef = useRef<GpsLocation | null>(null);
-  const isSharingLocationRef = useRef<boolean>(isSharingLocation);
-  const isChatOpenRef = useRef<boolean>(isChatOpen);
+  const isChatOpenRef = useRef(false);
   const lastRiderTimestampsRef = useRef<Map<string, number>>(new Map());
+  /**
+   * Who we broadcast as. Filled in once the session resolves — reading `user`
+   * from the first render left it empty after a page refresh / auto-rejoin.
+   */
+  const identityRef = useRef<RiderIdentity | null>(null);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
   }, [isChatOpen]);
 
+  // Resuming sharing should announce our position immediately
   useEffect(() => {
-    userLocationRef.current = userLocation;
-  }, [userLocation]);
-
-  useEffect(() => {
-    isSharingLocationRef.current = isSharingLocation;
+    if (isSharingLocation) throttleFilterRef.current.reset();
   }, [isSharingLocation]);
 
-  // 1. Recalculate Route when Destination or Origin changes
-  const calculateRoute = useCallback(
-    async (dest: Destination, startLoc: GpsLocation | null) => {
-      if (!startLoc) return;
-      try {
-        const result = await MapboxDirectionsService.getRoute(
-          startLoc.lng,
-          startLoc.lat,
-          dest.lng,
-          dest.lat,
-          currentRide?.vehicle_mode || 'driving'
-        );
-        setRoute(result);
-      } catch (err) {
-        console.warn('Failed to calculate directions:', err);
-      }
-    },
-    [currentRide?.vehicle_mode, setRoute]
-  );
+  const buildPayload = useCallback((loc: GpsLocation | null): LocationBroadcastPayload | null => {
+    const id = identityRef.current;
+    if (!id || !loc) return null;
+    return { ...id, ...sanitizeGpsPayload(loc) };
+  }, []);
 
-  // 2. Initialize Ride, Auth, and Realtime Subscriptions
+  // Initialize ride, auth, realtime and GPS
   useEffect(() => {
     if (!rideId) return;
 
     let isMounted = true;
+    const ride$ = useRideStore.getState();
+    const map$ = useMapStore.getState();
+    trailStore.load(rideId);
 
     const setupSessionAndRide = async () => {
       try {
@@ -123,7 +88,6 @@ export const RidePage: React.FC = () => {
           throw new Error('Could not establish an anonymous session.');
         }
 
-        // Fetch Ride data
         const ride = await RideService.getRideById(rideId);
         if (!ride) {
           localStorage.removeItem('longride_active_ride_id');
@@ -137,19 +101,29 @@ export const RidePage: React.FC = () => {
 
         if (!isMounted) return;
 
+        const session = useSessionStore.getState();
+        const identity: RiderIdentity = {
+          userId: activeUser.id,
+          displayName: session.displayName || 'Rider',
+          vehicleType: session.vehicleType || 'motorcycle',
+          avatarUrl: session.avatarUrl || undefined,
+        };
+        identityRef.current = identity;
+
         localStorage.setItem('longride_active_ride_id', rideId);
-        setRide(ride, activeUser.id);
+        ride$.setRide(ride, activeUser.id);
 
-        // Fetch Participants
         const participants = await RideService.getParticipants(rideId);
-        if (isMounted) setParticipants(participants);
+        if (isMounted) ride$.setParticipants(participants);
 
-        // Fetch & Restore Persistent Chat History
+        // Restore persistent chat history (local cache + database)
         let initialChatMsgs: ChatMessagePayload[] = [];
         try {
           const cached = localStorage.getItem(`ride_chat_${rideId}`);
           if (cached) initialChatMsgs = JSON.parse(cached);
-        } catch {}
+        } catch {
+          // ignore corrupt cache
+        }
 
         try {
           const dbMsgs = await RideService.getRideMessages(rideId);
@@ -167,14 +141,17 @@ export const RidePage: React.FC = () => {
             mappedDb.forEach((m) => merged.set(m.id, m));
             initialChatMsgs = Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp);
           }
-        } catch {}
+        } catch {
+          // offline — keep the cached history
+        }
 
-        // Compute unread messages count comparing against last read timestamp
         let lastReadTimestamp = 0;
         try {
           const savedLastRead = localStorage.getItem(`ride_chat_last_read_${rideId}`);
           if (savedLastRead) lastReadTimestamp = parseInt(savedLastRead, 10) || 0;
-        } catch {}
+        } catch {
+          // ignore
+        }
 
         const missedCount = initialChatMsgs.filter(
           (m) => m.userId !== activeUser.id && m.timestamp > lastReadTimestamp
@@ -183,72 +160,78 @@ export const RidePage: React.FC = () => {
         if (isMounted) {
           setChatMessages(initialChatMsgs);
           setUnreadCount(missedCount);
-          try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(initialChatMsgs.slice(-100))); } catch {}
+          try {
+            localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(initialChatMsgs.slice(-100)));
+          } catch {
+            // ignore
+          }
         }
 
-        // Optimistically set current user as online immediately with 0ms lag
-        setOnlineUserIds([activeUser.id]);
+        // Optimistically mark ourselves online
+        ride$.setOnlineUserIds([activeUser.id]);
 
-        // Subscribe to Supabase Realtime (Presence & Broadcast)
         const channel = new RideRealtimeChannel(rideId, {
           onLocationUpdate: (payload) => {
+            if (!payload?.userId) return;
             const lastTimestamp = lastRiderTimestampsRef.current.get(payload.userId) || 0;
             if (payload.timestamp && payload.timestamp < lastTimestamp) {
-              return; // Stale packet delayed by cellular jitter; ignore
+              return; // stale packet delayed by cellular jitter
             }
             lastRiderTimestampsRef.current.set(payload.userId, payload.timestamp);
-            updateRiderLocation(payload);
-            addOnlineUserId(payload.userId);
+            useMapStore.getState().updateRiderLocation(payload);
+            useRideStore.getState().addOnlineUserId(payload.userId);
+            trailStore.append(payload.userId, payload.lng, payload.lat, payload.accuracy);
           },
           onRouteChange: (payload) => {
+            // The route itself is (re)planned by useRouteNavigation from our own position
             if (payload.destinationLat && payload.destinationLng) {
-              const newDest: Destination = {
+              useRideStore.getState().setDestination({
                 lat: payload.destinationLat,
                 lng: payload.destinationLng,
                 name: payload.destinationName || 'Destination',
-              };
-              setDestination(newDest);
-              calculateRoute(newDest, userLocationRef.current);
+              });
             } else {
-              setDestination(null);
-              setRoute(null);
+              useRideStore.getState().setDestination(null);
             }
           },
           onRideEvent: (payload) => {
             if (payload.type === 'ride_ended') {
               localStorage.removeItem('longride_active_ride_id');
-              alert('The ride session has ended.');
-              navigate('/');
+              trailStore.discard(rideId);
+              setEndedNotice(payload.message || 'The host ended the ride.');
             }
           },
           onChatMessage: (payload) => {
-            addOnlineUserId(payload.userId);
+            useRideStore.getState().addOnlineUserId(payload.userId);
             setChatMessages((prev) => {
               if (prev.some((m) => m.id === payload.id)) return prev;
               const updated = [...prev, payload];
-              try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100))); } catch {}
+              try {
+                localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100)));
+              } catch {
+                // ignore
+              }
               return updated;
             });
 
-            // Increment unread count only if modal is closed and message is not from current user
             if (!isChatOpenRef.current && payload.userId !== activeUser.id) {
               setUnreadCount((prev) => prev + 1);
             } else if (isChatOpenRef.current) {
               try {
                 localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
-              } catch {}
+              } catch {
+                // ignore
+              }
             }
           },
           onPresenceSync: (state) => {
-            const onlineIds = Object.keys(state);
-            // Ensure current active user is always included
-            const allOnline = Array.from(new Set([activeUser.id, ...onlineIds]));
-            setOnlineUserIds(allOnline);
-            syncActiveRiders(allOnline);
+            const allOnline = Array.from(new Set([activeUser.id, ...Object.keys(state)]));
+            useRideStore.getState().setOnlineUserIds(allOnline);
+            useMapStore.getState().syncActiveRiders(allOnline);
           },
           onPresenceJoin: (_key, newPresence) => {
-            addOnlineUserId(newPresence.userId);
-            addOrUpdateParticipant({
+            useRideStore.getState().addOnlineUserId(newPresence.userId);
+            useRideStore.getState().addOrUpdateParticipant({
               id: newPresence.userId,
               ride_id: rideId,
               user_id: newPresence.userId,
@@ -260,72 +243,35 @@ export const RidePage: React.FC = () => {
               last_seen_at: new Date().toISOString(),
             });
 
-            // Immediately announce our latest location to the new rider so they see us without waiting
-            if (userLocationRef.current && isSharingLocationRef.current && activeUser) {
-              channel.broadcastLocation({
-                userId: activeUser.id,
-                displayName: displayName || 'Rider',
-                vehicleType: vehicleType || 'motorcycle',
-                avatarUrl: avatarUrl || undefined,
-                lat: userLocationRef.current.lat,
-                lng: userLocationRef.current.lng,
-                accuracy: userLocationRef.current.accuracy,
-                heading: userLocationRef.current.heading,
-                speed: userLocationRef.current.speed,
-                timestamp: userLocationRef.current.timestamp,
-              });
-            }
+            // Announce our latest position so the newcomer sees us right away
+            const payload = buildPayload(userLocationRef.current);
+            if (payload && useMapStore.getState().isSharingLocation) channel.broadcastLocation(payload);
           },
           onPresenceLeave: (_key, leftPresence) => {
             if (leftPresence?.userId) {
-              removeOnlineUserId(leftPresence.userId);
-              removeParticipant(leftPresence.userId);
-              removeRiderLocation(leftPresence.userId);
+              useRideStore.getState().removeOnlineUserId(leftPresence.userId);
+              useRideStore.getState().removeParticipant(leftPresence.userId);
+              useMapStore.getState().removeRiderLocation(leftPresence.userId);
             }
           },
           onStatusChange: (status) => {
-            if (status === 'SUBSCRIBED') setRealtimeStatus('CONNECTED');
-            else if (status === 'CHANNEL_ERROR') setRealtimeStatus('ERROR');
-            else setRealtimeStatus('DISCONNECTED');
+            const setStatus = useRideStore.getState().setRealtimeStatus;
+            if (status === 'SUBSCRIBED') setStatus('CONNECTED');
+            else if (status === 'CHANNEL_ERROR') setStatus('ERROR');
+            else setStatus('DISCONNECTED');
           },
         });
 
+        useRideStore.getState().setRealtimeStatus('CONNECTING');
         await channel.subscribe({
-          userId: activeUser.id,
-          displayName: displayName || 'Rider',
+          ...identity,
           isHost: ride.host_user_id === activeUser.id,
-          vehicleType: vehicleType || 'motorcycle',
-          avatarUrl: avatarUrl || undefined,
           joinedAt: Date.now(),
           onlineAt: Date.now(),
-          location: userLocationRef.current
-            ? {
-                userId: activeUser.id,
-                displayName: displayName || 'Rider',
-                vehicleType: vehicleType || 'motorcycle',
-                avatarUrl: avatarUrl || undefined,
-                lat: userLocationRef.current.lat,
-                lng: userLocationRef.current.lng,
-                accuracy: userLocationRef.current.accuracy,
-                heading: userLocationRef.current.heading,
-                speed: userLocationRef.current.speed,
-                timestamp: userLocationRef.current.timestamp,
-              }
-            : undefined,
+          location: buildPayload(userLocationRef.current) ?? undefined,
         });
 
         realtimeChannelRef.current = channel;
-
-        // If ride already had a destination, compute route
-        if (ride.destination_lat && ride.destination_lng) {
-          const initDest: Destination = {
-            lat: ride.destination_lat,
-            lng: ride.destination_lng,
-            name: ride.destination_name || 'Shared Destination',
-          };
-          setDestination(initDest);
-        }
-
         setIsLoading(false);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Error joining ride';
@@ -338,66 +284,49 @@ export const RidePage: React.FC = () => {
 
     setupSessionAndRide();
 
-    // Prevent phone screen from locking / sleeping while riding
+    // Prevent the phone screen from sleeping while riding
     screenWakeLock.acquire();
 
-    // 3. Start Geolocation Watcher
+    // GPS: raw fix → smoothing filter → map / trail → throttled broadcast
     GeolocationService.startWatching(
-      (pos) => {
+      (raw) => {
         if (!isMounted) return;
-        setUserLocation(pos);
-        userLocationRef.current = pos;
         setPermissionError(null);
+        const pos = gpsFilterRef.current.process(raw);
+        if (!pos) return;
 
-        // Broadcast position if allowed and passes adaptive throttle filter
+        userLocationRef.current = pos;
+        map$.setUserLocation(pos);
+        const selfId = identityRef.current?.userId;
+        if (selfId) trailStore.append(selfId, pos.lng, pos.lat, pos.accuracy);
+
         if (
-          isSharingLocationRef.current &&
+          useMapStore.getState().isSharingLocation &&
           realtimeChannelRef.current &&
           throttleFilterRef.current.shouldBroadcast(pos)
         ) {
-          const clean = sanitizeGpsPayload(pos);
-          const payload = {
-            userId: user?.id || '',
-            displayName: displayName || 'Rider',
-            vehicleType: vehicleType || 'motorcycle',
-            avatarUrl: avatarUrl || undefined,
-            lat: clean.lat,
-            lng: clean.lng,
-            accuracy: clean.accuracy,
-            heading: clean.heading,
-            speed: clean.speed,
-            timestamp: clean.timestamp,
-          };
-          realtimeChannelRef.current.broadcastLocation(payload);
-          // Note: updatePresence removed from high-frequency GPS ticks to avoid mobile socket congestion
+          const payload = buildPayload(pos);
+          if (payload) realtimeChannelRef.current.broadcastLocation(payload);
         }
       },
       (geoError) => {
         if (geoError.code === 1) {
-          setPermissionError('Location permission denied. Please allow location access to use GPS navigation.');
+          setPermissionError('Location permission denied. Allow location access in your browser settings to share your position.');
         } else {
           console.warn('GPS signal warning:', geoError.message);
         }
       }
     );
 
-    // Low-frequency heartbeat (60s) to keep presence active without flooding the mobile socket
+    // Low-frequency presence heartbeat keeps us "online" without flooding the socket
     const presenceHeartbeat = setInterval(() => {
-      if (isMounted && realtimeChannelRef.current && userLocationRef.current) {
-        const clean = sanitizeGpsPayload(userLocationRef.current);
-        realtimeChannelRef.current.updatePresence({
-          location: {
-            userId: user?.id || '',
-            displayName: displayName || 'Rider',
-            vehicleType: vehicleType || 'motorcycle',
-            avatarUrl: avatarUrl || undefined,
-            ...clean,
-          },
-        });
+      const payload = buildPayload(userLocationRef.current);
+      if (isMounted && realtimeChannelRef.current && payload) {
+        realtimeChannelRef.current.updatePresence({ userId: payload.userId, location: payload });
       }
     }, 60000);
 
-    // Cleanup on unmount
+    const gpsFilter = gpsFilterRef.current;
     return () => {
       isMounted = false;
       screenWakeLock.release();
@@ -407,114 +336,131 @@ export const RidePage: React.FC = () => {
         realtimeChannelRef.current.unsubscribe();
         realtimeChannelRef.current = null;
       }
-      clearRiderLocations();
-      resetRide();
+      gpsFilter.reset();
+      trailStore.reset();
+      resetLiveTracks();
+      usePlaceStore.getState().reset();
+      useMapStore.getState().clearRiderLocations();
+      useRideStore.getState().resetRide();
     };
-  }, [rideId, initSession]);
+  }, [rideId, initSession, buildPayload]);
 
-  // Compute route once user location becomes available if destination exists
-  useEffect(() => {
-    if (destination && userLocation) {
-      calculateRoute(destination, userLocation);
+  const handleSetDestination = useCallback(async (dest: Destination | null) => {
+    const ride = useRideStore.getState().currentRide;
+    if (!ride) return;
+    try {
+      const updatedRide = await RideService.updateDestination(ride.id, dest);
+      // Set the destination before the ride row so a cleared destination stays cleared
+      useRideStore.getState().setDestination(dest);
+      useRideStore.getState().setRide(updatedRide);
+
+      await realtimeChannelRef.current?.broadcastRouteUpdated({
+        routeVersion: updatedRide.route_version,
+        destinationLat: dest?.lat ?? null,
+        destinationLng: dest?.lng ?? null,
+        destinationName: dest?.name ?? null,
+        vehicleMode: updatedRide.vehicle_mode,
+        updatedBy: ride.host_user_id,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error('Failed to update destination:', err);
+      throw err;
     }
-  }, [destination, userLocation, calculateRoute]);
-
-  const handleLeaveRide = () => {
-    setIsLeaveModalOpen(true);
-  };
+  }, []);
 
   const handleConfirmLeave = async () => {
     if (!rideId) return;
     setIsLeaving(true);
     try {
       localStorage.removeItem('longride_active_ride_id');
+      trailStore.discard(rideId);
       if (isHost) {
         // Host ends the ride for everyone
         await RideService.updateStatus(rideId, 'ended');
-        if (realtimeChannelRef.current) {
-          await realtimeChannelRef.current.broadcastRideEvent({
-            type: 'ride_ended',
-            message: 'The host ended the ride session.',
-            timestamp: Date.now(),
-          });
-        }
+        await realtimeChannelRef.current?.broadcastRideEvent({
+          type: 'ride_ended',
+          message: 'The host ended the ride session.',
+          timestamp: Date.now(),
+        });
       } else {
-        // Participant leaves
         await RideService.leaveRide(rideId);
       }
-      navigate('/');
     } catch (err) {
       console.error('Failed to leave ride:', err);
-      navigate('/');
     } finally {
       setIsLeaving(false);
-      setIsLeaveModalOpen(false);
-    }
-  };
-
-  const handleFocusRider = (lng: number, lat: number) => {
-    setCameraMode('FREE');
-    const map = (window as unknown as { __activeMap?: mapboxgl.Map }).__activeMap;
-    if (map) {
-      map.flyTo({ center: [lng, lat], zoom: 16, duration: 800 });
+      navigate('/');
     }
   };
 
   const handleSendChatMessage = (text: string, isQuickAlert?: boolean) => {
-    if (!user || !rideId) return;
+    const id = identityRef.current;
+    if (!id || !rideId) return;
     const msg: ChatMessagePayload = {
       id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      userId: user.id,
-      displayName: displayName || 'Rider',
+      userId: id.userId,
+      displayName: id.displayName,
       text,
       timestamp: Date.now(),
       isQuickAlert,
     };
     setChatMessages((prev) => {
       const updated = [...prev, msg];
-      try { localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100))); } catch {}
+      try {
+        localStorage.setItem(`ride_chat_${rideId}`, JSON.stringify(updated.slice(-100)));
+      } catch {
+        // ignore
+      }
       return updated;
     });
     realtimeChannelRef.current?.broadcastChatMessage(msg);
-    RideService.sendRideMessage(rideId, user.id, displayName || 'Rider', text, !!isQuickAlert).catch(() => {});
+    RideService.sendRideMessage(rideId, id.userId, id.displayName, text, !!isQuickAlert).catch(() => {});
   };
 
-  const handleOpenChat = () => {
-    setIsChatOpen(true);
+  const markChatRead = () => {
     setUnreadCount(0);
-    if (rideId) {
-      try {
-        localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
-      } catch {}
+    if (!rideId) return;
+    try {
+      localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
+    } catch {
+      // ignore
     }
   };
 
-  const handleCloseChat = () => {
-    setIsChatOpen(false);
-    setUnreadCount(0);
-    if (rideId) {
-      try {
-        localStorage.setItem(`ride_chat_last_read_${rideId}`, Date.now().toString());
-      } catch {}
-    }
-  };
+  if (endedNotice) {
+    return (
+      <div className="min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="glass-panel p-8 rounded-3xl max-w-sm w-full space-y-4 lr-anim-pop">
+          <div className="w-14 h-14 rounded-2xl bg-brand-500/15 border border-brand-500/30 flex items-center justify-center mx-auto">
+            <Flag className="w-7 h-7 text-brand-300" />
+          </div>
+          <h2 className="text-xl font-extrabold">Ride ended</h2>
+          <p className="text-sm text-slate-400">{endedNotice}</p>
+          <Button variant="primary" size="lg" onClick={() => navigate('/')} className="w-full">
+            Back to home
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 gap-3">
+      <div className="min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
-        <p className="text-sm text-slate-400 font-medium">Connecting to ride session...</p>
+        <p className="text-sm text-slate-400 font-medium">Connecting to ride session…</p>
       </div>
     );
   }
 
   if (error || !currentRide) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="glass-panel p-8 rounded-3xl max-w-md w-full space-y-4 border-rose-500/30">
+      <div className="min-h-[100dvh] bg-[#0B0F19] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="glass-panel p-8 rounded-3xl max-w-md w-full space-y-4 border-rose-500/30 lr-anim-pop">
           <AlertCircle className="w-10 h-10 text-rose-400 mx-auto" />
-          <h2 className="text-lg font-bold text-white">Ride Unavailable</h2>
-          <p className="text-xs text-slate-400">{error || 'Could not load ride details.'}</p>
+          <h2 className="text-lg font-bold text-white">Ride unavailable</h2>
+          <p className="text-sm text-slate-400">{error || 'Could not load ride details.'}</p>
           <Button variant="primary" onClick={() => navigate('/')} className="w-full">
             <ArrowLeft className="w-4 h-4" />
             <span>Return to Home</span>
@@ -525,97 +471,23 @@ export const RidePage: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 w-full h-full overflow-hidden bg-slate-950 flex flex-col">
-      {/* Top Floating Glass Header */}
-      <header className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-30 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-none pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]">
-        {/* Left: Chat Icon Button */}
-        <div className="pointer-events-auto">
-          <button
-            onClick={handleOpenChat}
-            className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-slate-900/85 hover:bg-slate-800 border border-brand-500/30 hover:border-brand-500/60 text-brand-400 hover:text-white flex items-center justify-center shadow-xl shadow-brand-500/10 backdrop-blur-md transition-all active:scale-95"
-            title="Group Ride Chat"
-          >
-            <MessageSquare className="w-5 h-5 stroke-[2]" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-red-600 text-white font-black text-[10px] rounded-full flex items-center justify-center border-2 border-slate-950 animate-bounce shadow-lg shadow-red-600/60">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Right: Controls & Status */}
-        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
-          <LocationStatusBadge />
-          {isHost && <HostControls realtimeChannel={realtimeChannelRef.current} />}
-        </div>
-      </header>
-
-      {/* Permission Warning Banner */}
-      {permissionError && (
-        <div className="absolute top-20 left-4 right-4 z-30 max-w-md mx-auto glass-panel border-rose-500/50 bg-rose-950/70 p-3 rounded-2xl text-xs text-rose-200 flex items-center gap-2.5 shadow-2xl">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{permissionError}</span>
-        </div>
-      )}
-
-      {/* Fullscreen Interactive Map */}
-      <main className="flex-1 w-full h-full relative">
-        <RideMap />
-      </main>
-
-      {/* Following Live Status Pill (when detail card is not open) */}
-      {followingUserId && !selectedUserId && (
-        <div className="absolute top-16 left-3 sm:top-20 sm:left-4 z-30 pointer-events-auto glass-panel px-3 py-1.5 rounded-2xl border-purple-500/50 bg-purple-950/85 shadow-2xl flex items-center gap-2 text-xs text-purple-200 animate-in fade-in duration-200">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-400" />
-          </span>
-          <button
-            onClick={() => setSelectedUserId(followingUserId)}
-            className="font-bold truncate max-w-[140px] hover:underline text-left"
-          >
-            Following {riderLocations[followingUserId]?.displayName || 'Rider'}
-          </button>
-          <button
-            onClick={clearFollowing}
-            className="px-2 py-0.5 rounded-lg bg-purple-800/80 hover:bg-purple-700 text-white text-[10px] font-bold transition-colors shadow"
-          >
-            Stop
-          </button>
-        </div>
-      )}
-
-      {/* Selected Rider Detail / Follow Card (Opened on map icon tap) */}
-      <div className="absolute top-16 sm:top-auto sm:bottom-4 sm:left-[410px] left-3 right-3 sm:right-auto sm:w-80 z-40 pointer-events-none pb-[env(safe-area-inset-bottom,0px)]">
-        <RiderDetailCard onFocusRider={handleFocusRider} />
-      </div>
-
-      {/* Bottom Floating Rider Drawer */}
-      <div className="absolute bottom-4 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-auto sm:w-96 z-30 pointer-events-none pb-[env(safe-area-inset-bottom,0.75rem)]">
-        <RiderListDrawer
-          onLeaveRide={handleLeaveRide}
-          onFocusRider={handleFocusRider}
-        />
-      </div>
-
-      {/* Realtime Group Ride Chat Modal */}
-      <ChatModal
-        isOpen={isChatOpen}
-        onClose={handleCloseChat}
-        rideName={currentRide.name}
-        messages={chatMessages}
-        onSendMessage={handleSendChatMessage}
-      />
-
-      {/* Leave Ride / End Ride Confirmation Dialog */}
-      <ConfirmLeaveModal
-        isOpen={isLeaveModalOpen}
-        onClose={() => setIsLeaveModalOpen(false)}
-        onConfirm={handleConfirmLeave}
-        isHost={isHost}
-        isLoading={isLeaving}
-      />
-    </div>
+    <RideView
+      chatMessages={chatMessages}
+      unreadCount={unreadCount}
+      isChatOpen={isChatOpen}
+      onOpenChat={() => {
+        setIsChatOpen(true);
+        markChatRead();
+      }}
+      onCloseChat={() => {
+        setIsChatOpen(false);
+        markChatRead();
+      }}
+      onSendChatMessage={handleSendChatMessage}
+      onSetDestination={handleSetDestination}
+      onConfirmLeave={handleConfirmLeave}
+      isLeaving={isLeaving}
+      permissionError={permissionError}
+    />
   );
 };

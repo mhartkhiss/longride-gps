@@ -8,13 +8,16 @@ LongRide GPS lets riders create a temporary ride room, share a 6-character room 
 
 ## ✨ Features
 
-- **Live Multiplayer GPS**: Watch every rider's position, heading orientation, and live speed with smooth marker interpolation.
-- **Shared Destination & Route**: Host can search or pin destinations; route geometry, distance, and ETA synchronize across all devices.
+- **Live Multiplayer GPS**: Watch every rider's position, heading and live speed with smooth 60 fps marker animation and breadcrumb trails of where each rider has been.
+- **Precise Everywhere — Roads, Alleys & Trails**: Raw GPS is cleaned by an accuracy-weighted (Kalman-style) filter with outlier rejection, but **never snapped to roads**, so inner-barangay alleys and unmapped off-road paths keep their true position. Riders on weak signal still update (at a slower cadence) instead of freezing at the last main road, and every puck shows an accuracy halo.
+- **GTA / Google-Maps Navigation Camera**: Heading-up, tilted 3D camera glued to your puck, speed-based zoom, puck held low on screen to show the road ahead, re-center button and automatic re-center a few seconds after you stop touching the map.
+- **Detailed Map**: Mapbox Standard with 3D buildings, POIs and fuel stations, a highlight layer for footpaths, alleys and dirt tracks, satellite view for unmapped trails, and day / dusk / night lighting that follows sunrise and sunset.
+- **Where Am I**: Live road or path name read straight from the map tiles (e.g. "Dirt track") plus barangay and city, like GTA's street / district readout.
+- **Shared Destination & Turn-by-Turn**: Host searches places (gas stations, cafés, barangays, addresses) or long-presses / picks a spot on the map; everyone gets the route, the next turn, remaining distance and ETA. Routes are only re-planned when a rider actually leaves them.
 - **Battery & Bandwidth Throttling**: GPS updates are filtered client-side (1.5s interval + 3m movement threshold) before broadcasting.
 - **No Sign-Up Barriers**: Instant anonymous/guest authentication—no passwords or emails required to ride.
 - **Ephemeral Realtime Architecture**: Live GPS coordinates stream over **Supabase Realtime Broadcast** (never clogging your database), while **Presence** tracks who is online/offline.
-- **Mobile-First Dark UI**: Designed strictly for mounted smartphones (motorcycles, bikes, cars) with high-contrast night aesthetics, glove-friendly touch targets (min 44px), collapsible bottom sheets, 2D/3D tilt toggle, and 1-tap recenter/fit-group controls.
-- **Strict Mobile Ergonomics**: Fixed `100dvh` viewport containment, iOS/Android gesture navigation safe area insets, 16px inputs to prevent mobile browser auto-zoom, and tactile haptic feedback.
+- **Mobile-First UI**: Designed for mounted smartphones with glove-friendly touch targets (min 44px), a swipeable bottom sheet, quick shouts, and safe-area aware layout.
 
 ---
 
@@ -111,6 +114,14 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
    - **Device 1**: Tap **Create New Ride** -> Enter ride name -> Share code.
    - **Device 2**: Tap **Join with Code** -> Enter the 6-character code.
 4. Allow Location Permissions to start broadcasting live GPS positions.
+
+---
+
+## 🧪 Testing the Navigation View Without Riding
+
+`npm run dev` also serves a GPS simulator at **`/dev/ride`** (development only — it is not included in production builds). It replays a route as noisy 1 Hz GPS with two fake riders, through the same filter → map → camera pipeline the real ride uses, without touching Supabase.
+
+Optional query parameters: `from=lng,lat`, `to=lng,lat`, `mode=driving|cycling|walking`, `kmh=30`, and `nodest=1` to ride without a shared destination.
 
 ---
 

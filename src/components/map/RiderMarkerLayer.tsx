@@ -3,335 +3,364 @@ import mapboxgl from 'mapbox-gl';
 import { GpsLocation } from '@/features/location/locationTypes';
 import { LocationBroadcastPayload } from '@/types/realtime';
 import { RideParticipant } from '@/types/database';
-import { getRiderColor, formatSpeed } from '@/lib/utils';
+import { escapeHtml, getRiderColor, speedToKmh } from '@/lib/utils';
+import { metersPerPixel } from '@/lib/geo';
+import { addFrameTask } from '@/features/map/frameLoop';
+import { liveTracks } from '@/features/map/liveState';
+import { MotionTrack } from '@/features/map/motion';
 
 interface RiderMarkerLayerProps {
   map: mapboxgl.Map | null;
   currentUserLocation: GpsLocation | null;
-  currentUserAvatarUrl?: string | null;
   currentUserId: string;
-  currentDisplayName: string;
   riderLocations: Record<string, LocationBroadcastPayload>;
   participants: RideParticipant[];
   followingUserId?: string | null;
   onSelectRider?: (userId: string) => void;
 }
 
-interface MarkerKinematics {
-  currentLng: number;
-  currentLat: number;
-  targetLng: number;
-  targetLat: number;
-  speed: number | null;
-  heading: number | null;
-  currentHeading: number | null;
-  lastPacketTime: number;
+const STALE_MS = 30000;
+const MOVING_MPS = 1.4;
+/** Other riders only get an accuracy halo when their fix is genuinely rough. */
+const RIDER_RING_MIN_ACCURACY = 25;
+
+interface SelfPuck {
+  ground: mapboxgl.Marker;
+  dot: mapboxgl.Marker;
+  ring: HTMLElement;
+  arrow: HTMLElement;
+  beam: HTMLElement;
+  dotEl: HTMLElement;
+  lastRingPx: number;
+  lastMoving: boolean | null;
 }
 
+interface RiderMarker {
+  marker: mapboxgl.Marker;
+  ringMarker: mapboxgl.Marker;
+  ring: HTMLElement;
+  pointer: HTMLElement;
+  label: HTMLElement;
+  bubble: HTMLElement;
+  renderKey: string;
+  lastRingPx: number;
+  lastRotation: number | null;
+}
+
+function createSelfPuck(map: mapboxgl.Map): SelfPuck {
+  const groundEl = document.createElement('div');
+  groundEl.className = 'lr-ground';
+  groundEl.innerHTML = `
+    <div class="lr-accuracy lr-accuracy--self"></div>
+    <div class="lr-beam"></div>
+    <svg class="lr-nav-arrow" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 3 L41 42 L24 33 L7 42 Z" />
+    </svg>`;
+  const ground = new mapboxgl.Marker({
+    element: groundEl,
+    anchor: 'center',
+    rotationAlignment: 'map',
+    pitchAlignment: 'map',
+  })
+    .setLngLat([0, 0])
+    .addTo(map);
+
+  const dotEl = document.createElement('div');
+  dotEl.className = 'lr-self-dot';
+  dotEl.innerHTML = '<span class="lr-self-dot__halo"></span><span class="lr-self-dot__core"></span>';
+  const dot = new mapboxgl.Marker({ element: dotEl, anchor: 'center' }).setLngLat([0, 0]).addTo(map);
+
+  return {
+    ground,
+    dot,
+    ring: groundEl.querySelector('.lr-accuracy') as HTMLElement,
+    arrow: groundEl.querySelector('.lr-nav-arrow') as unknown as HTMLElement,
+    beam: groundEl.querySelector('.lr-beam') as HTMLElement,
+    dotEl,
+    lastRingPx: -1,
+    lastMoving: null,
+  };
+}
+
+function riderRenderKey(
+  loc: LocationBroadcastPayload,
+  participant: RideParticipant | undefined,
+  isFollowed: boolean,
+  isStale: boolean
+): string {
+  const kmh = speedToKmh(loc.speed);
+  const speedBucket = kmh >= 5 ? Math.round(kmh / 2) * 2 : 0;
+  return [
+    loc.displayName,
+    loc.avatarUrl || participant?.avatar_url || '',
+    participant?.is_host ? 'h' : '',
+    isFollowed ? 'f' : '',
+    isStale ? 's' : '',
+    speedBucket,
+  ].join('|');
+}
+
+function renderRiderContent(
+  rm: RiderMarker,
+  loc: LocationBroadcastPayload,
+  participant: RideParticipant | undefined,
+  isFollowed: boolean,
+  isStale: boolean
+) {
+  const color = getRiderColor(loc.userId);
+  const name = escapeHtml(loc.displayName || participant?.display_name || 'Rider');
+  const avatarUrl = loc.avatarUrl || participant?.avatar_url || null;
+  const initial = escapeHtml((loc.displayName || 'R').trim().charAt(0).toUpperCase() || 'R');
+  const kmh = speedToKmh(loc.speed);
+
+  const el = rm.marker.getElement();
+  el.classList.toggle('lr-rider--followed', isFollowed);
+  el.classList.toggle('lr-rider--stale', isStale);
+  el.style.setProperty('--rider-color', color);
+
+  rm.bubble.innerHTML = avatarUrl
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="" referrerpolicy="no-referrer" />`
+    : `<span>${initial}</span>`;
+  if (participant?.is_host) rm.bubble.insertAdjacentHTML('beforeend', '<i class="lr-rider__crown">👑</i>');
+
+  rm.label.innerHTML = `<span class="lr-rider__name">${name}</span>${
+    !isStale && kmh >= 5 ? `<span class="lr-rider__speed">${kmh}</span>` : ''
+  }`;
+}
+
+function createRiderMarker(map: mapboxgl.Map, loc: LocationBroadcastPayload, onClick: () => void): RiderMarker {
+  const el = document.createElement('div');
+  el.className = 'lr-rider';
+  el.innerHTML = `
+    <div class="lr-rider__pin">
+      <div class="lr-rider__pointer"></div>
+      <div class="lr-rider__bubble"></div>
+    </div>
+    <div class="lr-rider__label"></div>`;
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+
+  const marker = new mapboxgl.Marker({ element: el, anchor: 'top', offset: [0, -20] })
+    .setLngLat([loc.lng, loc.lat])
+    .addTo(map);
+
+  const ringEl = document.createElement('div');
+  ringEl.className = 'lr-ground';
+  ringEl.innerHTML = '<div class="lr-accuracy lr-accuracy--rider"></div>';
+  const ringMarker = new mapboxgl.Marker({ element: ringEl, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' })
+    .setLngLat([loc.lng, loc.lat])
+    .addTo(map);
+
+  return {
+    marker,
+    ringMarker,
+    ring: ringEl.firstElementChild as HTMLElement,
+    pointer: el.querySelector('.lr-rider__pointer') as HTMLElement,
+    label: el.querySelector('.lr-rider__label') as HTMLElement,
+    bubble: el.querySelector('.lr-rider__bubble') as HTMLElement,
+    renderKey: '',
+    lastRingPx: -1,
+    lastRotation: null,
+  };
+}
+
+function ringDiameterPx(accuracy: number, lat: number, zoom: number): number {
+  if (!Number.isFinite(accuracy) || accuracy <= 0) return 0;
+  return Math.min(2400, (2 * accuracy) / metersPerPixel(lat, zoom));
+}
+
+/**
+ * Draws your own Google-Maps-style puck (blue dot when stopped, navigation
+ * arrow when moving, accuracy halo) and every other rider's avatar marker, all
+ * animated at 60 fps from the shared motion tracks.
+ */
 export const RiderMarkerLayer: React.FC<RiderMarkerLayerProps> = ({
   map,
   currentUserLocation,
-  currentUserAvatarUrl,
   currentUserId,
-  currentDisplayName,
   riderLocations,
   participants,
   followingUserId,
   onSelectRider,
 }) => {
-  const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
-  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  const kinematicsRef = useRef<Map<string, MarkerKinematics>>(new Map());
-  const userKinematicsRef = useRef<MarkerKinematics | null>(null);
+  const selfRef = useRef<SelfPuck | null>(null);
+  const ridersRef = useRef<Map<string, RiderMarker>>(new Map());
+  const onSelectRef = useRef(onSelectRider);
+  onSelectRef.current = onSelectRider;
+  /** Wall-clock time of the newest own fix, to grey the puck out when GPS goes quiet. */
+  const currentUserFixAt = useRef<number>(0);
 
-  // 1. Continuous 60fps Interpolation & Dead Reckoning Loop
-  useEffect(() => {
-    let animFrameId: number;
-
-    const animate = () => {
-      const now = performance.now();
-
-      // Smoothly glide current user marker
-      if (userMarkerRef.current && userKinematicsRef.current) {
-        const uk = userKinematicsRef.current;
-        const dLng = uk.targetLng - uk.currentLng;
-        const dLat = uk.targetLat - uk.currentLat;
-
-        if (Math.abs(dLng) > 0.0000005 || Math.abs(dLat) > 0.0000005) {
-          uk.currentLng += dLng * 0.15;
-          uk.currentLat += dLat * 0.15;
-          userMarkerRef.current.setLngLat([uk.currentLng, uk.currentLat]);
-        }
-
-        if (uk.heading !== null && uk.currentHeading !== null) {
-          let diff = ((uk.heading - uk.currentHeading + 180) % 360) - 180;
-          if (diff < -180) diff += 360;
-          if (Math.abs(diff) > 0.5) {
-            uk.currentHeading += diff * 0.18;
-            const arrow = userMarkerRef.current.getElement().querySelector('.heading-arrow') as HTMLElement | null;
-            if (arrow) arrow.style.transform = `rotate(${uk.currentHeading}deg)`;
-          }
-        }
-      }
-
-      // Smoothly glide other riders with Dead Reckoning forward extrapolation
-      markersRef.current.forEach((marker, userId) => {
-        const k = kinematicsRef.current.get(userId);
-        if (!k) return;
-
-        const elapsedMs = now - k.lastPacketTime;
-        let effTargetLng = k.targetLng;
-        let effTargetLat = k.targetLat;
-
-        // Dead reckoning: if packet is delayed (1.2s - 4.5s) on spotty mobile data, project along heading vector
-        if (elapsedMs > 1200 && elapsedMs < 4500 && k.speed && k.speed > 1.2 && k.heading !== null) {
-          const delaySec = (elapsedMs - 1200) / 1000;
-          const projectedDist = Math.min(k.speed * delaySec, 65); // Cap forward projection to 65m max
-          const rad = (k.heading * Math.PI) / 180;
-          const projLat = (projectedDist * Math.cos(rad)) / 111320;
-          const projLng = (projectedDist * Math.sin(rad)) / (111320 * Math.cos((k.targetLat * Math.PI) / 180));
-          effTargetLng += projLng;
-          effTargetLat += projLat;
-        }
-
-        // LERP glide towards target
-        const dLng = effTargetLng - k.currentLng;
-        const dLat = effTargetLat - k.currentLat;
-
-        if (Math.abs(dLng) > 0.0000005 || Math.abs(dLat) > 0.0000005) {
-          k.currentLng += dLng * 0.12;
-          k.currentLat += dLat * 0.12;
-          marker.setLngLat([k.currentLng, k.currentLat]);
-        }
-
-        // Smooth heading turn
-        if (k.heading !== null && k.currentHeading !== null) {
-          let diff = ((k.heading - k.currentHeading + 180) % 360) - 180;
-          if (diff < -180) diff += 360;
-          if (Math.abs(diff) > 0.5) {
-            k.currentHeading += diff * 0.18;
-            const arrow = marker.getElement().querySelector('.rider-heading') as HTMLElement | null;
-            if (arrow) arrow.style.transform = `rotate(${k.currentHeading}deg)`;
-          }
-        }
-      });
-
-      animFrameId = requestAnimationFrame(animate);
-    };
-
-    animFrameId = requestAnimationFrame(animate);
-
-    return () => {
-      cancelAnimationFrame(animFrameId);
-    };
-  }, []);
-
-  // 2. Manage Current User's Own Marker
+  // 1. 60 fps animation of every marker (runs before the camera in the shared frame loop)
   useEffect(() => {
     if (!map) return;
 
-    if (!currentUserLocation) {
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove();
-        userMarkerRef.current = null;
+    return addFrameTask(0, (now, dt) => {
+      const zoom = map.getZoom();
+      const bearing = map.getBearing();
+
+      // Own puck
+      const self = selfRef.current;
+      const track = liveTracks.self;
+      if (self && track.initialized) {
+        if (track.step(now, dt)) {
+          self.ground.setLngLat([track.lng, track.lat]);
+          self.dot.setLngLat([track.lng, track.lat]);
+        }
+        const moving = (track.speed ?? 0) > MOVING_MPS && track.heading !== null;
+        if (moving !== self.lastMoving) {
+          self.lastMoving = moving;
+          self.arrow.style.opacity = moving ? '1' : '0';
+          self.dotEl.style.opacity = moving ? '0' : '1';
+        }
+        self.beam.style.opacity = !moving && track.heading !== null ? '1' : '0';
+        if (track.heading !== null) self.ground.setRotation(track.heading);
+
+        const ring = ringDiameterPx(track.accuracy, track.lat, zoom);
+        if (Math.abs(ring - self.lastRingPx) > 0.5) {
+          self.lastRingPx = ring;
+          self.ring.style.width = `${ring}px`;
+          self.ring.style.height = `${ring}px`;
+          self.ring.style.opacity = ring > 26 ? '1' : '0';
+        }
+        const stale = Date.now() - (currentUserFixAt.current || 0) > STALE_MS;
+        self.dotEl.classList.toggle('lr-self-dot--stale', stale);
       }
-      userKinematicsRef.current = null;
+
+      // Other riders
+      ridersRef.current.forEach((rm, userId) => {
+        const t = liveTracks.riders.get(userId);
+        if (!t || !t.initialized) return;
+        if (t.step(now, dt)) {
+          rm.marker.setLngLat([t.lng, t.lat]);
+          rm.ringMarker.setLngLat([t.lng, t.lat]);
+        }
+        if (t.heading !== null) {
+          const rotation = t.heading - bearing;
+          if (rm.lastRotation === null || Math.abs(rotation - rm.lastRotation) > 0.3) {
+            rm.lastRotation = rotation;
+            rm.pointer.style.transform = `rotate(${rotation}deg)`;
+            rm.pointer.style.opacity = '1';
+          }
+        }
+        const ring = t.accuracy >= RIDER_RING_MIN_ACCURACY ? ringDiameterPx(t.accuracy, t.lat, zoom) : 0;
+        if (Math.abs(ring - rm.lastRingPx) > 0.5) {
+          rm.lastRingPx = ring;
+          rm.ring.style.width = `${ring}px`;
+          rm.ring.style.height = `${ring}px`;
+          rm.ring.style.opacity = ring > 40 ? '1' : '0';
+        }
+      });
+    });
+  }, [map]);
+
+  // 2. Own position → motion track
+  useEffect(() => {
+    if (!map) return;
+    if (!currentUserLocation) {
+      if (selfRef.current) {
+        selfRef.current.ground.remove();
+        selfRef.current.dot.remove();
+        selfRef.current = null;
+      }
       return;
     }
 
-    const { lng, lat, heading, speed } = currentUserLocation;
-    const now = performance.now();
+    currentUserFixAt.current = currentUserLocation.timestamp || Date.now();
+    liveTracks.self.push({
+      lng: currentUserLocation.lng,
+      lat: currentUserLocation.lat,
+      heading: currentUserLocation.heading,
+      speed: currentUserLocation.speed,
+      accuracy: currentUserLocation.accuracy,
+    });
 
-    if (!userKinematicsRef.current) {
-      userKinematicsRef.current = {
-        currentLng: lng,
-        currentLat: lat,
-        targetLng: lng,
-        targetLat: lat,
-        speed,
-        heading,
-        currentHeading: heading,
-        lastPacketTime: now,
-      };
-    } else {
-      userKinematicsRef.current.targetLng = lng;
-      userKinematicsRef.current.targetLat = lat;
-      userKinematicsRef.current.speed = speed;
-      userKinematicsRef.current.heading = heading;
-      userKinematicsRef.current.lastPacketTime = now;
+    if (!selfRef.current) {
+      selfRef.current = createSelfPuck(map);
+      selfRef.current.ground.setLngLat([liveTracks.self.lng, liveTracks.self.lat]);
+      selfRef.current.dot.setLngLat([liveTracks.self.lng, liveTracks.self.lat]);
     }
+  }, [map, currentUserLocation]);
 
-    if (!userMarkerRef.current) {
-      const el = document.createElement('div');
-      el.className = 'relative flex flex-col items-center cursor-pointer group';
-      el.innerHTML = `
-        <div class="relative flex items-center justify-center">
-          <div class="absolute -inset-2.5 bg-brand-500/20 rounded-full animate-ping"></div>
-          ${
-            currentUserAvatarUrl
-              ? `<div class="relative w-10 h-10 rounded-full border-2 border-brand-400 shadow-xl overflow-hidden bg-slate-900 flex items-center justify-center">
-                   <img src="${currentUserAvatarUrl}" alt="You" class="w-full h-full object-cover rounded-full" />
-                 </div>
-                 <div class="absolute -top-1 w-4 h-4 bg-brand-400 rounded-full flex items-center justify-center shadow-md border border-slate-900 heading-arrow transition-transform duration-300">
-                   <svg class="w-2.5 h-2.5 text-slate-950" viewBox="0 0 24 24" fill="currentColor">
-                     <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-                   </svg>
-                 </div>`
-              : `<div class="relative w-9 h-9 bg-brand-500 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-slate-950 font-black text-xs">
-                   <svg class="w-5 h-5 transition-transform duration-300 heading-arrow" viewBox="0 0 24 24" fill="currentColor">
-                     <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-                   </svg>
-                 </div>`
-          }
-        </div>
-        <div class="mt-1 px-2 py-0.5 bg-slate-900/90 text-brand-400 text-[10px] font-bold rounded-md border border-brand-500/40 shadow-lg whitespace-nowrap user-speed-label">
-          You (${formatSpeed(speed)})
-        </div>
-      `;
-
-      el.addEventListener('click', () => onSelectRider?.(currentUserId));
-
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([lng, lat])
-        .addTo(map);
-
-      userMarkerRef.current = marker;
-    } else {
-      const el = userMarkerRef.current.getElement();
-      const speedLabel = el.querySelector('.user-speed-label');
-      if (speedLabel) {
-        speedLabel.textContent = `You (${formatSpeed(speed)})`;
-      }
-    }
-  }, [map, currentUserLocation, currentUserAvatarUrl, currentUserId, currentDisplayName, onSelectRider]);
-
-  // 3. Manage Other Riders' Markers
+  // 3. Other riders → markers + motion tracks
   useEffect(() => {
     if (!map) return;
+    const markers = ridersRef.current;
 
-    const currentMarkers = markersRef.current;
-    const now = performance.now();
-
-    // Deduplicate active riders by displayName (keep newest timestamp)
-    const newestRiderByDisplayName = new Map<string, LocationBroadcastPayload>();
+    // Collapse duplicate sessions of the same rider (rejoins) onto their newest position
+    const newestByName = new Map<string, LocationBroadcastPayload>();
     Object.values(riderLocations).forEach((loc) => {
-      if (loc.userId === currentUserId) return;
+      if (!loc.userId || loc.userId === currentUserId) return;
       const key = (loc.displayName || 'Rider').trim().toLowerCase();
-      const existing = newestRiderByDisplayName.get(key);
-      if (!existing || loc.timestamp > existing.timestamp) {
-        newestRiderByDisplayName.set(key, loc);
+      const existing = newestByName.get(key);
+      if (!existing || loc.timestamp > existing.timestamp) newestByName.set(key, loc);
+    });
+    const active = Array.from(newestByName.values());
+    const activeIds = new Set(active.map((l) => l.userId));
+
+    markers.forEach((rm, id) => {
+      if (!activeIds.has(id)) {
+        rm.marker.remove();
+        rm.ringMarker.remove();
+        markers.delete(id);
+        liveTracks.riders.delete(id);
       }
     });
 
-    const activeUniqueLocations = Array.from(newestRiderByDisplayName.values());
-    const activeRiderIds = new Set(activeUniqueLocations.map((l) => l.userId));
-
-    // Remove markers for riders who are no longer active
-    currentMarkers.forEach((marker, riderId) => {
-      if (!activeRiderIds.has(riderId) || riderId === currentUserId) {
-        marker.remove();
-        currentMarkers.delete(riderId);
-        kinematicsRef.current.delete(riderId);
-      }
-    });
-
-    // Add / Update kinematic targets for active riders
-    activeUniqueLocations.forEach((loc) => {
-      if (loc.userId === currentUserId) return;
-
+    active.forEach((loc) => {
       const participant = participants.find((p) => p.user_id === loc.userId);
-      const isHost = participant?.is_host || false;
-      const color = getRiderColor(loc.userId);
-      const isStale = Date.now() - loc.timestamp > 30000;
-
-      let marker = currentMarkers.get(loc.userId);
       const isFollowed = followingUserId === loc.userId;
+      const isStale = Date.now() - loc.timestamp > STALE_MS;
 
-      // Update kinematics target
-      const k = kinematicsRef.current.get(loc.userId);
-      if (!k) {
-        kinematicsRef.current.set(loc.userId, {
-          currentLng: loc.lng,
-          currentLat: loc.lat,
-          targetLng: loc.lng,
-          targetLat: loc.lat,
-          speed: loc.speed,
-          heading: loc.heading,
-          currentHeading: loc.heading,
-          lastPacketTime: now,
-        });
-      } else {
-        k.targetLng = loc.lng;
-        k.targetLat = loc.lat;
-        k.speed = loc.speed;
-        k.heading = loc.heading;
-        k.lastPacketTime = now;
+      let track = liveTracks.riders.get(loc.userId);
+      if (!track) {
+        track = new MotionTrack({ deadReckoning: true });
+        liveTracks.riders.set(loc.userId, track);
+      }
+      track.push({ lng: loc.lng, lat: loc.lat, heading: loc.heading, speed: loc.speed, accuracy: loc.accuracy });
+
+      let rm = markers.get(loc.userId);
+      if (!rm) {
+        rm = createRiderMarker(map, loc, () => onSelectRef.current?.(loc.userId));
+        markers.set(loc.userId, rm);
       }
 
-      if (!marker) {
-        const avatarUrl = loc.avatarUrl || participant?.avatar_url || null;
-        const el = document.createElement('div');
-        el.className = 'relative flex flex-col items-center cursor-pointer transition-all duration-300 group';
-        el.innerHTML = `
-          <div class="relative flex items-center justify-center">
-            ${isFollowed ? '<div class="absolute -inset-2 bg-purple-500/40 rounded-full animate-ping"></div>' : ''}
-            ${
-              avatarUrl
-                ? `<div class="relative w-9 h-9 rounded-full border-2 ${isFollowed ? 'border-purple-300 ring-4 ring-purple-500/40' : 'border-white/90'} shadow-xl overflow-hidden bg-slate-900 flex items-center justify-center" style="border-color: ${color}">
-                     <img src="${avatarUrl}" alt="${loc.displayName}" class="w-full h-full object-cover rounded-full" />
-                     ${isHost ? '<span class="absolute -top-1 -right-1 text-amber-400 text-xs drop-shadow">👑</span>' : ''}
-                   </div>
-                   <div class="absolute -top-1 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow-md border border-slate-900 rider-heading transition-transform duration-300" style="background-color: ${color}">
-                     <svg class="w-2 h-2 text-white" viewBox="0 0 24 24" fill="currentColor">
-                       <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-                     </svg>
-                   </div>`
-                : `<div class="relative w-8 h-8 rounded-full border-2 ${isFollowed ? 'border-purple-300 ring-4 ring-purple-500/40' : 'border-white/90'} shadow-xl flex items-center justify-center text-white font-bold text-xs transition-all" style="background-color: ${color}">
-                     ${isHost ? '<span class="absolute -top-2.5 text-amber-400 text-xs">👑</span>' : ''}
-                     <svg class="w-4 h-4 transition-transform duration-300 rider-heading" viewBox="0 0 24 24" fill="currentColor">
-                       <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-                     </svg>
-                   </div>`
-            }
-          </div>
-          <div class="mt-1 px-2 py-0.5 ${isFollowed ? 'bg-purple-950/90 text-purple-200 border-purple-500/60 font-bold' : 'bg-slate-900/90 text-white border-slate-700/60 font-semibold'} text-[10px] rounded-md border shadow-lg whitespace-nowrap rider-label">
-            ${isFollowed ? '🎯 ' : ''}${loc.displayName || 'Rider'}
-          </div>
-        `;
-
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          onSelectRider?.(loc.userId);
-        });
-
-        marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([loc.lng, loc.lat])
-          .addTo(map);
-
-        currentMarkers.set(loc.userId, marker);
-      } else {
-        const el = marker.getElement();
-        el.style.opacity = isStale ? '0.5' : '1';
-
-        const label = el.querySelector('.rider-label');
-        if (label) {
-          label.textContent = `${isFollowed ? '🎯 ' : ''}${loc.displayName} (${formatSpeed(loc.speed)})`;
-        }
+      const key = riderRenderKey(loc, participant, isFollowed, isStale);
+      if (key !== rm.renderKey) {
+        rm.renderKey = key;
+        renderRiderContent(rm, loc, participant, isFollowed, isStale);
       }
     });
-  }, [map, riderLocations, participants, currentUserId, followingUserId, onSelectRider]);
+  }, [map, riderLocations, participants, currentUserId, followingUserId]);
 
-  // Clean up all markers on component unmount
+  // Re-evaluate staleness even when no packets arrive
   useEffect(() => {
+    const timer = setInterval(() => {
+      ridersRef.current.forEach((rm, id) => {
+        const t = liveTracks.riders.get(id);
+        if (!t) return;
+        const stale = performance.now() - t.lastFixAt > STALE_MS;
+        rm.marker.getElement().classList.toggle('lr-rider--stale', stale);
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Clean up all markers on unmount
+  useEffect(() => {
+    const riders = ridersRef.current;
     return () => {
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove();
-        userMarkerRef.current = null;
+      if (selfRef.current) {
+        selfRef.current.ground.remove();
+        selfRef.current.dot.remove();
+        selfRef.current = null;
       }
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current.clear();
-      kinematicsRef.current.clear();
-      userKinematicsRef.current = null;
+      riders.forEach((rm) => {
+        rm.marker.remove();
+        rm.ringMarker.remove();
+      });
+      riders.clear();
     };
   }, []);
 

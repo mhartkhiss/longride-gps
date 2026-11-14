@@ -23,12 +23,12 @@ export const ConfirmLeaveModal: React.FC<ConfirmLeaveModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm lr-anim-fade"
         onClick={onClose}
       />
 
       {/* Modal Dialog */}
-      <div className="relative w-full max-w-sm bg-slate-900/95 border border-rose-500/30 rounded-3xl shadow-2xl shadow-rose-950/50 p-6 z-10 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-sm bg-slate-900/95 border border-rose-500/30 rounded-3xl shadow-2xl shadow-rose-950/50 p-6 z-10 flex flex-col items-center text-center lr-anim-pop">
         {/* Close Button */}
         <button
           onClick={onClose}
